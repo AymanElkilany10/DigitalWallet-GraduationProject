@@ -3,7 +3,37 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.12.35527.113 d17.12
 MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DigitalWallet.Domain", "DigitalWallet.Domain\DigitalWallet.Domain.csproj", "{F2DF1F12-150B-4E32-8FEE-78BE898F168C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DigitalWallet.Application", "DigitalWallet.Application\DigitalWallet.Application.csproj", "{7939F6BD-9805-4CA9-B29D-73BD854A8119}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DigitalWallet.Infrastructure", "DigitalWallet.Infrastructure\DigitalWallet.Infrastructure.csproj", "{91CFE8CB-99D3-4032-AA89-DBCC1C1093D7}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DigitalWallet.API", "DigitalWallet.API\DigitalWallet.API.csproj", "{ACAA2DA1-0C5F-49B3-B49A-DE6EE5F1E17B}"
+EndProject
 Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F2DF1F12-150B-4E32-8FEE-78BE898F168C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F2DF1F12-150B-4E32-8FEE-78BE898F168C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F2DF1F12-150B-4E32-8FEE-78BE898F168C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F2DF1F12-150B-4E32-8FEE-78BE898F168C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7939F6BD-9805-4CA9-B29D-73BD854A8119}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7939F6BD-9805-4CA9-B29D-73BD854A8119}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7939F6BD-9805-4CA9-B29D-73BD854A8119}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7939F6BD-9805-4CA9-B29D-73BD854A8119}.Release|Any CPU.Build.0 = Release|Any CPU
+		{91CFE8CB-99D3-4032-AA89-DBCC1C1093D7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{91CFE8CB-99D3-4032-AA89-DBCC1C1093D7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{91CFE8CB-99D3-4032-AA89-DBCC1C1093D7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{91CFE8CB-99D3-4032-AA89-DBCC1C1093D7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{ACAA2DA1-0C5F-49B3-B49A-DE6EE5F1E17B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{ACAA2DA1-0C5F-49B3-B49A-DE6EE5F1E17B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{ACAA2DA1-0C5F-49B3-B49A-DE6EE5F1E17B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{ACAA2DA1-0C5F-49B3-B49A-DE6EE5F1E17B}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
