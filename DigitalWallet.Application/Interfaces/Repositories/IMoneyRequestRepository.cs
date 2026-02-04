@@ -2,13 +2,10 @@
 
 namespace DigitalWallet.Application.Interfaces.Repositories
 {
-    public interface IMoneyRequestRepository
+    public interface IMoneyRequestRepository : IBaseRepository<MoneyRequest>
     {
-        Task<MoneyRequest?> GetByIdAsync(Guid id);
-        Task<IEnumerable<MoneyRequest>> GetSentRequestsAsync(Guid userId);
-        Task<IEnumerable<MoneyRequest>> GetReceivedRequestsAsync(Guid userId);
-        Task<MoneyRequest> AddAsync(MoneyRequest request);
-        Task UpdateAsync(MoneyRequest request);
-        Task DeleteAsync(Guid id);
+        Task<IEnumerable<MoneyRequest>> GetByFromUserIdAsync(Guid userId);
+        Task<IEnumerable<MoneyRequest>> GetByToUserIdAsync(Guid userId);
+        Task<IEnumerable<MoneyRequest>> GetPendingRequestsAsync(Guid userId);
     }
 }

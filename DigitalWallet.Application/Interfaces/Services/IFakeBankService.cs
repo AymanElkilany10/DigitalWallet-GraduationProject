@@ -1,5 +1,5 @@
-﻿using DigitalWallet.Application.DTOs.FakeBank;
-using DigitalWallet.Application.Common;
+﻿using DigitalWallet.Application.Common;
+using DigitalWallet.Application.DTOs.FakeBank;
 
 namespace DigitalWallet.Application.Interfaces.Services
 {
@@ -7,5 +7,6 @@ namespace DigitalWallet.Application.Interfaces.Services
     {
         Task<ServiceResult<FakeBankTransactionDto>> DepositAsync(DepositRequestDto request);
         Task<ServiceResult<FakeBankTransactionDto>> WithdrawAsync(WithdrawRequestDto request);
+        Task<ServiceResult<decimal>> GetBankBalanceAsync(Guid userId);
     }
 }

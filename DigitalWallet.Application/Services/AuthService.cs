@@ -5,28 +5,25 @@ using DigitalWallet.Application.Interfaces.Repositories;
 using DigitalWallet.Application.Interfaces.Services;
 using DigitalWallet.Domain.Entities;
 using DigitalWallet.Domain.Enums;
-using DigitalWallet.Domain.Exceptions;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.IdentityModel.Tokens;
 
 namespace DigitalWallet.Application.Services
 {
     public class AuthService : IAuthService
     {
-        private readonly IUserRepository _userRepository;
-        private readonly IWalletRepository _walletRepository;
-        private readonly IOtpCodeRepository _otpRepository;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
 
-        public AuthService(
-            IUserRepository userRepository,
-            IWalletRepository walletRepository,
-            IOtpCodeRepository otpRepository,
-            IMapper mapper)
+        private const string JwtSecretKey = "YourSuperSecretKeyForJWTTokenGeneration123456";
+        private const int JwtExpirationHours = 24;
+
+        public AuthService(IUnitOfWork unitOfWork, IMapper mapper)
         {
-            _userRepository = userRepository;
-            _walletRepository = walletRepository;
-            _otpRepository = otpRepository;
+            _unitOfWork = unitOfWork;
             _mapper = mapper;
         }
 
@@ -34,32 +31,24 @@ namespace DigitalWallet.Application.Services
         {
             try
             {
-                // Check if email exists
-                if (await _userRepository.EmailExistsAsync(request.Email))
-                    return ServiceResult<LoginResponseDto>.Failure("Email already exists");
+                if (await _unitOfWork.Users.EmailExistsAsync(request.Email))
+                    return ServiceResult<LoginResponseDto>.Failure("Email already registered");
 
-                // Check if phone exists
-                if (await _userRepository.PhoneExistsAsync(request.PhoneNumber))
-                    return ServiceResult<LoginResponseDto>.Failure("Phone number already exists");
+                if (await _unitOfWork.Users.PhoneExistsAsync(request.PhoneNumber))
+                    return ServiceResult<LoginResponseDto>.Failure("Phone number already registered");
 
-                // Hash password
-                var (passwordHash, salt) = HashPassword(request.Password);
+                var salt = GenerateSalt();
+                var passwordHash = HashPassword(request.Password, salt);
 
-                // Create user
-                var user = new User
-                {
-                    FullName = request.FullName,
-                    Email = request.Email,
-                    PhoneNumber = request.PhoneNumber,
-                    PasswordHash = passwordHash,
-                    Salt = salt,
-                    KycLevel = KycLevel.Basic,
-                    Status = UserStatus.Active
-                };
+                // Use AutoMapper to map DTO to Entity
+                var user = _mapper.Map<User>(request);
+                user.PasswordHash = passwordHash;
+                user.Salt = salt;
+                user.KycLevel = KycLevel.Basic;
+                user.Status = UserStatus.Active;
 
-                await _userRepository.AddAsync(user);
+                await _unitOfWork.Users.AddAsync(user);
 
-                // Create default wallet
                 var wallet = new Wallet
                 {
                     UserId = user.Id,
@@ -69,14 +58,26 @@ namespace DigitalWallet.Application.Services
                     MonthlyLimit = 20000
                 };
 
-                await _walletRepository.AddAsync(wallet);
+                await _unitOfWork.Wallets.AddAsync(wallet);
 
-                // Generate token (simplified - you should use JWT)
+                var fakeBankAccount = new FakeBankAccount
+                {
+                    UserId = user.Id,
+                    AccountNumber = GenerateAccountNumber(),
+                    Balance = 10000
+                };
+
+                await _unitOfWork.FakeBankAccounts.AddAsync(fakeBankAccount);
+                await _unitOfWork.SaveChangesAsync();
+
+                var token = GenerateJwtToken(user);
+                var refreshToken = GenerateRefreshToken();
+
                 var response = new LoginResponseDto
                 {
-                    Token = GenerateToken(user.Id),
-                    RefreshToken = GenerateRefreshToken(),
-                    ExpiresAt = DateTime.UtcNow.AddHours(24),
+                    Token = token,
+                    RefreshToken = refreshToken,
+                    ExpiresAt = DateTime.UtcNow.AddHours(JwtExpirationHours),
                     UserId = user.Id,
                     FullName = user.FullName,
                     Email = user.Email,
@@ -95,39 +96,49 @@ namespace DigitalWallet.Application.Services
         {
             try
             {
-                // Find user by email or phone
-                var user = await _userRepository.GetByEmailOrPhoneAsync(request.EmailOrPhone);
+                User? user = null;
+
+                if (request.EmailOrPhone.Contains("@"))
+                    user = await _unitOfWork.Users.GetByEmailAsync(request.EmailOrPhone);
+                else
+                    user = await _unitOfWork.Users.GetByPhoneNumberAsync(request.EmailOrPhone);
 
                 if (user == null)
                     return ServiceResult<LoginResponseDto>.Failure("Invalid credentials");
 
-                // Verify password
-                if (!VerifyPassword(request.Password, user.PasswordHash, user.Salt))
+                var passwordHash = HashPassword(request.Password, user.Salt);
+                if (passwordHash != user.PasswordHash)
                     return ServiceResult<LoginResponseDto>.Failure("Invalid credentials");
 
-                // Check user status
                 if (user.Status != UserStatus.Active)
-                    return ServiceResult<LoginResponseDto>.Failure("Account is suspended or banned");
+                    return ServiceResult<LoginResponseDto>.Failure("Account is suspended");
 
-                // Update last login
-                user.LastLoginAt = DateTime.UtcNow;
-                await _userRepository.UpdateAsync(user);
+                var otpCode = GenerateOtpCode();
+                var otp = new OtpCode
+                {
+                    UserId = user.Id,
+                    Code = otpCode,
+                    Type = OtpType.Login,
+                    ExpiresAt = DateTime.UtcNow.AddMinutes(5),
+                    IsUsed = false
+                };
 
-                // Generate OTP for sensitive operations
-                var otpCode = await GenerateOtpAsync(user.Id, "login");
+                await _unitOfWork.OtpCodes.AddAsync(otp);
+                await _unitOfWork.SaveChangesAsync();
 
                 var response = new LoginResponseDto
                 {
-                    Token = GenerateToken(user.Id),
-                    RefreshToken = GenerateRefreshToken(),
-                    ExpiresAt = DateTime.UtcNow.AddHours(24),
                     UserId = user.Id,
                     FullName = user.FullName,
                     Email = user.Email,
-                    RequiresOtp = true // For demonstration
+                    RequiresOtp = true,
+                    Token = string.Empty,
+                    RefreshToken = string.Empty
                 };
 
-                return ServiceResult<LoginResponseDto>.Success(response, "Login successful");
+                return ServiceResult<LoginResponseDto>.Success(
+                    response,
+                    $"OTP sent to your phone. Code: {otpCode}");
             }
             catch (Exception ex)
             {
@@ -139,20 +150,24 @@ namespace DigitalWallet.Application.Services
         {
             try
             {
-                var otp = await _otpRepository.GetValidOtpAsync(request.UserId, request.Code, OtpType.Login);
+                var otp = await _unitOfWork.OtpCodes.GetValidOtpAsync(
+                    request.UserId,
+                    request.Code,
+                    OtpType.Login);
 
                 if (otp == null)
                     return ServiceResult<bool>.Failure("Invalid or expired OTP");
 
-                if (otp.IsUsed)
-                    return ServiceResult<bool>.Failure("OTP already used");
+                await _unitOfWork.OtpCodes.MarkAsUsedAsync(otp.Id);
 
-                if (otp.ExpiresAt < DateTime.UtcNow)
-                    return ServiceResult<bool>.Failure("OTP has expired");
+                var user = await _unitOfWork.Users.GetByIdAsync(request.UserId);
+                if (user != null)
+                {
+                    user.LastLoginAt = DateTime.UtcNow;
+                    await _unitOfWork.Users.UpdateAsync(user);
+                }
 
-                // Mark as used
-                otp.IsUsed = true;
-                await _otpRepository.UpdateAsync(otp);
+                await _unitOfWork.SaveChangesAsync();
 
                 return ServiceResult<bool>.Success(true, "OTP verified successfully");
             }
@@ -162,85 +177,59 @@ namespace DigitalWallet.Application.Services
             }
         }
 
-        public async Task<ServiceResult<string>> GenerateOtpAsync(Guid userId, string type)
+        public async Task<ServiceResult<bool>> SendOtpAsync(Guid userId, string otpType)
         {
             try
             {
-                // Invalidate old OTPs
-                await _otpRepository.InvalidateUserOtpsAsync(userId,
-                    type == "login" ? OtpType.Login : OtpType.Transfer);
+                var user = await _unitOfWork.Users.GetByIdAsync(userId);
+                if (user == null)
+                    return ServiceResult<bool>.Failure("User not found");
 
-                // Generate 6-digit OTP
-                var code = GenerateOtpCode();
+                var otpCode = GenerateOtpCode();
+                var type = Enum.Parse<OtpType>(otpType, true);
 
                 var otp = new OtpCode
                 {
                     UserId = userId,
-                    Code = code,
-                    Type = type == "login" ? OtpType.Login : OtpType.Transfer,
+                    Code = otpCode,
+                    Type = type,
                     ExpiresAt = DateTime.UtcNow.AddMinutes(5),
                     IsUsed = false
                 };
 
-                await _otpRepository.AddAsync(otp);
+                await _unitOfWork.OtpCodes.AddAsync(otp);
+                await _unitOfWork.SaveChangesAsync();
 
-                // In real app, send OTP via SMS/Email
-                // For now, return it (ONLY for development)
-                return ServiceResult<string>.Success(code, "OTP generated successfully");
+                return ServiceResult<bool>.Success(
+                    true,
+                    $"OTP sent successfully. Code: {otpCode}");
             }
             catch (Exception ex)
             {
-                return ServiceResult<string>.Failure($"OTP generation failed: {ex.Message}");
+                return ServiceResult<bool>.Failure($"Failed to send OTP: {ex.Message}");
             }
         }
 
-        // Helper methods
-        private (string hash, string salt) HashPassword(string password)
+        #region Private Helper Methods
+
+        private string GenerateSalt()
         {
             var saltBytes = new byte[32];
-            using var rng = RandomNumberGenerator.Create();
-            rng.GetBytes(saltBytes);
-            var salt = Convert.ToBase64String(saltBytes);
-
-            var passwordBytes = Encoding.UTF8.GetBytes(password);
-            var saltedPassword = new byte[saltBytes.Length + passwordBytes.Length];
-            Buffer.BlockCopy(saltBytes, 0, saltedPassword, 0, saltBytes.Length);
-            Buffer.BlockCopy(passwordBytes, 0, saltedPassword, saltBytes.Length, passwordBytes.Length);
-
-            using var sha256 = SHA256.Create();
-            var hashBytes = sha256.ComputeHash(saltedPassword);
-            var hash = Convert.ToBase64String(hashBytes);
-
-            return (hash, salt);
+            using (var rng = RandomNumberGenerator.Create())
+            {
+                rng.GetBytes(saltBytes);
+            }
+            return Convert.ToBase64String(saltBytes);
         }
 
-        private bool VerifyPassword(string password, string hash, string salt)
+        private string HashPassword(string password, string salt)
         {
-            var saltBytes = Convert.FromBase64String(salt);
-            var passwordBytes = Encoding.UTF8.GetBytes(password);
-            var saltedPassword = new byte[saltBytes.Length + passwordBytes.Length];
-            Buffer.BlockCopy(saltBytes, 0, saltedPassword, 0, saltBytes.Length);
-            Buffer.BlockCopy(passwordBytes, 0, saltedPassword, saltBytes.Length, passwordBytes.Length);
-
-            using var sha256 = SHA256.Create();
-            var hashBytes = sha256.ComputeHash(saltedPassword);
-            var computedHash = Convert.ToBase64String(hashBytes);
-
-            return computedHash == hash;
-        }
-
-        private string GenerateToken(Guid userId)
-        {
-            // Simplified - In production, use JWT
-            return Convert.ToBase64String(Encoding.UTF8.GetBytes($"{userId}:{DateTime.UtcNow.Ticks}"));
-        }
-
-        private string GenerateRefreshToken()
-        {
-            var randomBytes = new byte[32];
-            using var rng = RandomNumberGenerator.Create();
-            rng.GetBytes(randomBytes);
-            return Convert.ToBase64String(randomBytes);
+            var combinedBytes = Encoding.UTF8.GetBytes(password + salt);
+            using (var sha256 = SHA256.Create())
+            {
+                var hashBytes = sha256.ComputeHash(combinedBytes);
+                return Convert.ToBase64String(hashBytes);
+            }
         }
 
         private string GenerateOtpCode()
@@ -248,5 +237,47 @@ namespace DigitalWallet.Application.Services
             var random = new Random();
             return random.Next(100000, 999999).ToString();
         }
+
+        private string GenerateAccountNumber()
+        {
+            var random = new Random();
+            return $"FBA{random.Next(10000000, 99999999)}";
+        }
+
+        private string GenerateRefreshToken()
+        {
+            var randomBytes = new byte[32];
+            using (var rng = RandomNumberGenerator.Create())
+            {
+                rng.GetBytes(randomBytes);
+            }
+            return Convert.ToBase64String(randomBytes);
+        }
+
+        private string GenerateJwtToken(User user)
+        {
+            var tokenHandler = new JwtSecurityTokenHandler();
+            var key = Encoding.ASCII.GetBytes(JwtSecretKey);
+
+            var tokenDescriptor = new SecurityTokenDescriptor
+            {
+                Subject = new ClaimsIdentity(new[]
+                {
+                    new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+                    new Claim(ClaimTypes.Email, user.Email),
+                    new Claim(ClaimTypes.Name, user.FullName),
+                    new Claim("phone", user.PhoneNumber)
+                }),
+                Expires = DateTime.UtcNow.AddHours(JwtExpirationHours),
+                SigningCredentials = new SigningCredentials(
+                    new SymmetricSecurityKey(key),
+                    SecurityAlgorithms.HmacSha256Signature)
+            };
+
+            var token = tokenHandler.CreateToken(tokenDescriptor);
+            return tokenHandler.WriteToken(token);
+        }
+
+        #endregion
     }
 }

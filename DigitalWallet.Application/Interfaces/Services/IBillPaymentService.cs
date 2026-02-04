@@ -1,5 +1,5 @@
-﻿using DigitalWallet.Application.DTOs.BillPayment;
-using DigitalWallet.Application.Common;
+﻿using DigitalWallet.Application.Common;
+using DigitalWallet.Application.DTOs.BillPayment;
 
 namespace DigitalWallet.Application.Interfaces.Services
 {
@@ -7,6 +7,7 @@ namespace DigitalWallet.Application.Interfaces.Services
     {
         Task<ServiceResult<IEnumerable<BillerDto>>> GetAllBillersAsync();
         Task<ServiceResult<BillPaymentDto>> PayBillAsync(Guid userId, PayBillRequestDto request);
-        Task<ServiceResult<IEnumerable<BillPaymentDto>>> GetUserBillPaymentsAsync(Guid userId);
+        Task<ServiceResult<PaginatedResult<BillPaymentDto>>> GetPaymentHistoryAsync(
+            Guid userId, int pageNumber = 1, int pageSize = 20);
     }
 }

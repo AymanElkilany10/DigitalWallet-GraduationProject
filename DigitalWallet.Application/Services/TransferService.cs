@@ -10,71 +10,60 @@ namespace DigitalWallet.Application.Services
 {
     public class TransferService : ITransferService
     {
-        private readonly ITransferRepository _transferRepository;
-        private readonly IWalletRepository _walletRepository;
-        private readonly IUserRepository _userRepository;
-        private readonly ITransactionRepository _transactionRepository;
-        private readonly IOtpCodeRepository _otpRepository;
-        private readonly INotificationRepository _notificationRepository;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
 
-        public TransferService(
-            ITransferRepository transferRepository,
-            IWalletRepository walletRepository,
-            IUserRepository userRepository,
-            ITransactionRepository transactionRepository,
-            IOtpCodeRepository otpRepository,
-            INotificationRepository notificationRepository,
-            IMapper mapper)
+        public TransferService(IUnitOfWork unitOfWork, IMapper mapper)
         {
-            _transferRepository = transferRepository;
-            _walletRepository = walletRepository;
-            _userRepository = userRepository;
-            _transactionRepository = transactionRepository;
-            _otpRepository = otpRepository;
-            _notificationRepository = notificationRepository;
+            _unitOfWork = unitOfWork;
             _mapper = mapper;
         }
 
         public async Task<ServiceResult<TransferResponseDto>> SendMoneyAsync(SendMoneyRequestDto request)
         {
+            await _unitOfWork.BeginTransactionAsync();
             try
             {
-                // 1. Verify OTP
-                var senderWallet = await _walletRepository.GetByIdAsync(request.SenderWalletId);
+                // Verify OTP
+                var senderWallet = await _unitOfWork.Wallets.GetByIdAsync(request.SenderWalletId);
                 if (senderWallet == null)
                     return ServiceResult<TransferResponseDto>.Failure("Sender wallet not found");
 
-                var otpValid = await _otpRepository.GetValidOtpAsync(
-                    senderWallet.UserId, request.OtpCode, OtpType.Transfer);
+                var otp = await _unitOfWork.OtpCodes.GetValidOtpAsync(
+                    senderWallet.UserId,
+                    request.OtpCode,
+                    OtpType.Transfer);
 
-                if (otpValid == null || otpValid.IsUsed)
+                if (otp == null)
                     return ServiceResult<TransferResponseDto>.Failure("Invalid or expired OTP");
 
-                // 2. Find receiver
-                var receiver = await _userRepository.GetByEmailOrPhoneAsync(request.ReceiverPhoneOrEmail);
+                // Find receiver
+                User? receiver = null;
+                if (request.ReceiverPhoneOrEmail.Contains("@"))
+                    receiver = await _unitOfWork.Users.GetByEmailAsync(request.ReceiverPhoneOrEmail);
+                else
+                    receiver = await _unitOfWork.Users.GetByPhoneNumberAsync(request.ReceiverPhoneOrEmail);
+
                 if (receiver == null)
                     return ServiceResult<TransferResponseDto>.Failure("Receiver not found");
 
-                var receiverWallet = (await _walletRepository.GetByUserIdAsync(receiver.Id)).FirstOrDefault();
-                if (receiverWallet == null)
-                    return ServiceResult<TransferResponseDto>.Failure("Receiver wallet not found");
+                // Get receiver wallet
+                var receiverWallet = await _unitOfWork.Wallets.GetByUserIdAndCurrencyAsync(
+                    receiver.Id,
+                    senderWallet.CurrencyCode);
 
-                // 3. Validate amount
+                if (receiverWallet == null)
+                    return ServiceResult<TransferResponseDto>.Failure(
+                        $"Receiver doesn't have a {senderWallet.CurrencyCode} wallet");
+
+                // Validate balance
                 if (senderWallet.Balance < request.Amount)
                     return ServiceResult<TransferResponseDto>.Failure("Insufficient balance");
 
-                if (request.Amount > senderWallet.DailyLimit)
-                    return ServiceResult<TransferResponseDto>.Failure("Amount exceeds daily limit");
+                // Check daily limit
+                // TODO: Implement daily limit check
 
-                // 4. Perform transfer
-                senderWallet.Balance -= request.Amount;
-                receiverWallet.Balance += request.Amount;
-
-                await _walletRepository.UpdateAsync(senderWallet);
-                await _walletRepository.UpdateAsync(receiverWallet);
-
-                // 5. Create transfer record
+                // Create transfer
                 var transfer = new Transfer
                 {
                     SenderWalletId = senderWallet.Id,
@@ -84,56 +73,68 @@ namespace DigitalWallet.Application.Services
                     Status = TransactionStatus.Success
                 };
 
-                await _transferRepository.AddAsync(transfer);
+                await _unitOfWork.Transfers.AddAsync(transfer);
 
-                // 6. Create transaction records
-                var senderTransaction = new Transaction
+                // Update balances
+                senderWallet.Balance -= request.Amount;
+                receiverWallet.Balance += request.Amount;
+
+                await _unitOfWork.Wallets.UpdateAsync(senderWallet);
+                await _unitOfWork.Wallets.UpdateAsync(receiverWallet);
+
+                // Create transactions
+                var senderTransaction = new Domain.Entities.Transaction
                 {
                     WalletId = senderWallet.Id,
                     Type = TransactionType.Transfer,
                     Amount = -request.Amount,
                     CurrencyCode = senderWallet.CurrencyCode,
                     Status = TransactionStatus.Success,
-                    Description = request.Description,
+                    Description = request.Description ?? $"Transfer to {receiver.FullName}",
                     Reference = transfer.Id.ToString()
                 };
 
-                var receiverTransaction = new Transaction
+                var receiverTransaction = new Domain.Entities.Transaction
                 {
                     WalletId = receiverWallet.Id,
                     Type = TransactionType.Transfer,
                     Amount = request.Amount,
                     CurrencyCode = receiverWallet.CurrencyCode,
                     Status = TransactionStatus.Success,
-                    Description = request.Description,
+                    Description = $"Transfer from {senderWallet.User?.FullName ?? "User"}",
                     Reference = transfer.Id.ToString()
                 };
 
-                await _transactionRepository.AddAsync(senderTransaction);
-                await _transactionRepository.AddAsync(receiverTransaction);
+                await _unitOfWork.Transactions.AddAsync(senderTransaction);
+                await _unitOfWork.Transactions.AddAsync(receiverTransaction);
 
-                // 7. Mark OTP as used
-                otpValid.IsUsed = true;
-                await _otpRepository.UpdateAsync(otpValid);
+                // Mark OTP as used
+                await _unitOfWork.OtpCodes.MarkAsUsedAsync(otp.Id);
 
-                // 8. Send notifications
-                await _notificationRepository.AddAsync(new Notification
+                // Create notifications
+                var senderNotification = new Notification
                 {
                     UserId = senderWallet.UserId,
-                    Title = "Money Sent",
+                    Title = "Transfer Sent",
                     Body = $"You sent {request.Amount} {senderWallet.CurrencyCode} to {receiver.FullName}",
                     Type = NotificationType.Transaction,
                     IsRead = false
-                });
+                };
 
-                await _notificationRepository.AddAsync(new Notification
+                var receiverNotification = new Notification
                 {
                     UserId = receiver.Id,
                     Title = "Money Received",
                     Body = $"You received {request.Amount} {receiverWallet.CurrencyCode}",
                     Type = NotificationType.Transaction,
                     IsRead = false
-                });
+                };
+
+                await _unitOfWork.Notifications.AddAsync(senderNotification);
+                await _unitOfWork.Notifications.AddAsync(receiverNotification);
+
+                await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.CommitTransactionAsync();
 
                 var response = new TransferResponseDto
                 {
@@ -145,33 +146,44 @@ namespace DigitalWallet.Application.Services
                     TransferredAt = DateTime.UtcNow
                 };
 
-                return ServiceResult<TransferResponseDto>.Success(response, "Transfer successful");
+                return ServiceResult<TransferResponseDto>.Success(
+                    response,
+                    "Transfer completed successfully");
             }
             catch (Exception ex)
             {
+                await _unitOfWork.RollbackTransactionAsync();
                 return ServiceResult<TransferResponseDto>.Failure($"Transfer failed: {ex.Message}");
             }
         }
 
-        public async Task<ServiceResult<IEnumerable<TransferDto>>> GetUserTransfersAsync(Guid userId)
+        public async Task<ServiceResult<PaginatedResult<TransferDto>>> GetTransferHistoryAsync(
+            Guid walletId, int pageNumber = 1, int pageSize = 20)
         {
             try
             {
-                var wallets = await _walletRepository.GetByUserIdAsync(userId);
-                var allTransfers = new List<Transfer>();
+                var sentTransfers = await _unitOfWork.Transfers.GetBySenderWalletIdAsync(
+                    walletId, pageNumber, pageSize);
+                var receivedTransfers = await _unitOfWork.Transfers.GetByReceiverWalletIdAsync(
+                    walletId, pageNumber, pageSize);
 
-                foreach (var wallet in wallets)
-                {
-                    var transfers = await _transferRepository.GetByWalletIdAsync(wallet.Id);
-                    allTransfers.AddRange(transfers);
-                }
+                var allTransfers = sentTransfers.Concat(receivedTransfers)
+                    .OrderByDescending(t => t.CreatedAt)
+                    .Take(pageSize)
+                    .ToList();
 
-                var transferDtos = _mapper.Map<IEnumerable<TransferDto>>(allTransfers);
-                return ServiceResult<IEnumerable<TransferDto>>.Success(transferDtos);
+                var transferDtos = _mapper.Map<List<TransferDto>>(allTransfers);
+                var totalCount = allTransfers.Count;
+
+                var paginatedResult = PaginatedResult<TransferDto>.Create(
+                    transferDtos, totalCount, pageNumber, pageSize);
+
+                return ServiceResult<PaginatedResult<TransferDto>>.Success(paginatedResult);
             }
             catch (Exception ex)
             {
-                return ServiceResult<IEnumerable<TransferDto>>.Failure($"Error retrieving transfers: {ex.Message}");
+                return ServiceResult<PaginatedResult<TransferDto>>.Failure(
+                    $"Error retrieving transfer history: {ex.Message}");
             }
         }
     }

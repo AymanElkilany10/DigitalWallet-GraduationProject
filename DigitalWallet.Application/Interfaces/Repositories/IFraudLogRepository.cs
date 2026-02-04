@@ -2,11 +2,9 @@
 
 namespace DigitalWallet.Application.Interfaces.Repositories
 {
-    public interface IFraudLogRepository
+    public interface IFraudLogRepository : IBaseRepository<FraudLog>
     {
-        Task<FraudLog?> GetByIdAsync(Guid id);
         Task<IEnumerable<FraudLog>> GetByUserIdAsync(Guid userId);
-        Task<IEnumerable<FraudLog>> GetRecentLogsAsync(int hours = 24);
-        Task<FraudLog> AddAsync(FraudLog fraudLog);
+        Task<IEnumerable<FraudLog>> GetRecentLogsAsync(int hours);
     }
 }

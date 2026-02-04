@@ -1,5 +1,5 @@
-﻿using DigitalWallet.Application.DTOs.Transaction;
-using DigitalWallet.Application.Common;
+﻿using DigitalWallet.Application.Common;
+using DigitalWallet.Application.DTOs.Transaction;
 
 namespace DigitalWallet.Application.Interfaces.Services
 {
