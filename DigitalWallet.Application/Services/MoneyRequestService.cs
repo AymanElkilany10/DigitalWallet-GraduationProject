@@ -10,40 +10,34 @@ namespace DigitalWallet.Application.Services
 {
     public class MoneyRequestService : IMoneyRequestService
     {
-        private readonly IMoneyRequestRepository _requestRepository;
-        private readonly IUserRepository _userRepository;
-        private readonly IWalletRepository _walletRepository;
-        private readonly ITransferRepository _transferRepository;
-        private readonly IOtpCodeRepository _otpRepository;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
 
-        public MoneyRequestService(
-            IMoneyRequestRepository requestRepository,
-            IUserRepository userRepository,
-            IWalletRepository walletRepository,
-            ITransferRepository transferRepository,
-            IOtpCodeRepository otpRepository,
-            IMapper mapper)
+        public MoneyRequestService(IUnitOfWork unitOfWork, IMapper mapper)
         {
-            _requestRepository = requestRepository;
-            _userRepository = userRepository;
-            _walletRepository = walletRepository;
-            _transferRepository = transferRepository;
-            _otpRepository = otpRepository;
+            _unitOfWork = unitOfWork;
             _mapper = mapper;
         }
 
         public async Task<ServiceResult<MoneyRequestDto>> CreateRequestAsync(
-            Guid fromUserId, CreateMoneyRequestDto request)
+            Guid fromUserId,
+            CreateMoneyRequestDto request)
         {
             try
             {
-                var toUser = await _userRepository.GetByEmailOrPhoneAsync(request.ToUserPhoneOrEmail);
+                // Find receiver
+                User? toUser = null;
+                if (request.ToUserPhoneOrEmail.Contains("@"))
+                    toUser = await _unitOfWork.Users.GetByEmailAsync(request.ToUserPhoneOrEmail);
+                else
+                    toUser = await _unitOfWork.Users.GetByPhoneNumberAsync(request.ToUserPhoneOrEmail);
+
                 if (toUser == null)
                     return ServiceResult<MoneyRequestDto>.Failure("User not found");
 
-                if (toUser.Id == fromUserId)
-                    return ServiceResult<MoneyRequestDto>.Failure("Cannot request money from yourself");
+                if (fromUserId == toUser.Id)
+                    return ServiceResult<MoneyRequestDto>.Failure(
+                        "Cannot request money from yourself");
 
                 var moneyRequest = new MoneyRequest
                 {
@@ -54,18 +48,30 @@ namespace DigitalWallet.Application.Services
                     Status = MoneyRequestStatus.Pending
                 };
 
-                await _requestRepository.AddAsync(moneyRequest);
+                await _unitOfWork.MoneyRequests.AddAsync(moneyRequest);
 
-                // Load navigation properties for mapping
-                moneyRequest.FromUser = await _userRepository.GetByIdAsync(fromUserId);
-                moneyRequest.ToUser = toUser;
+                // Create notification for receiver
+                var notification = new Notification
+                {
+                    UserId = toUser.Id,
+                    Title = "Money Request",
+                    Body = $"Money request for {request.Amount} {request.CurrencyCode}",
+                    Type = NotificationType.Transaction,
+                    IsRead = false
+                };
+
+                await _unitOfWork.Notifications.AddAsync(notification);
+                await _unitOfWork.SaveChangesAsync();
 
                 var requestDto = _mapper.Map<MoneyRequestDto>(moneyRequest);
-                return ServiceResult<MoneyRequestDto>.Success(requestDto, "Request created successfully");
+                return ServiceResult<MoneyRequestDto>.Success(
+                    requestDto,
+                    "Money request sent successfully");
             }
             catch (Exception ex)
             {
-                return ServiceResult<MoneyRequestDto>.Failure($"Error creating request: {ex.Message}");
+                return ServiceResult<MoneyRequestDto>.Failure(
+                    $"Error creating money request: {ex.Message}");
             }
         }
 
@@ -73,9 +79,8 @@ namespace DigitalWallet.Application.Services
         {
             try
             {
-                var requests = await _requestRepository.GetSentRequestsAsync(userId);
+                var requests = await _unitOfWork.MoneyRequests.GetByFromUserIdAsync(userId);
                 var requestDtos = _mapper.Map<IEnumerable<MoneyRequestDto>>(requests);
-
                 return ServiceResult<IEnumerable<MoneyRequestDto>>.Success(requestDtos);
             }
             catch (Exception ex)
@@ -85,13 +90,13 @@ namespace DigitalWallet.Application.Services
             }
         }
 
-        public async Task<ServiceResult<IEnumerable<MoneyRequestDto>>> GetReceivedRequestsAsync(Guid userId)
+        public async Task<ServiceResult<IEnumerable<MoneyRequestDto>>> GetReceivedRequestsAsync(
+            Guid userId)
         {
             try
             {
-                var requests = await _requestRepository.GetReceivedRequestsAsync(userId);
+                var requests = await _unitOfWork.MoneyRequests.GetByToUserIdAsync(userId);
                 var requestDtos = _mapper.Map<IEnumerable<MoneyRequestDto>>(requests);
-
                 return ServiceResult<IEnumerable<MoneyRequestDto>>.Success(requestDtos);
             }
             catch (Exception ex)
@@ -101,17 +106,19 @@ namespace DigitalWallet.Application.Services
             }
         }
 
-        public async Task<ServiceResult<bool>> RespondToRequestAsync(
-            Guid userId, AcceptRejectRequestDto request)
+        public async Task<ServiceResult<bool>> AcceptOrRejectRequestAsync(
+            Guid userId,
+            AcceptRejectRequestDto request)
         {
+            await _unitOfWork.BeginTransactionAsync();
             try
             {
-                var moneyRequest = await _requestRepository.GetByIdAsync(request.RequestId);
+                var moneyRequest = await _unitOfWork.MoneyRequests.GetByIdAsync(request.RequestId);
                 if (moneyRequest == null)
-                    return ServiceResult<bool>.Failure("Request not found");
+                    return ServiceResult<bool>.Failure("Money request not found");
 
                 if (moneyRequest.ToUserId != userId)
-                    return ServiceResult<bool>.Failure("Unauthorized to respond to this request");
+                    return ServiceResult<bool>.Failure("Unauthorized");
 
                 if (moneyRequest.Status != MoneyRequestStatus.Pending)
                     return ServiceResult<bool>.Failure("Request already processed");
@@ -119,21 +126,33 @@ namespace DigitalWallet.Application.Services
                 if (!request.Accept)
                 {
                     moneyRequest.Status = MoneyRequestStatus.Rejected;
-                    await _requestRepository.UpdateAsync(moneyRequest);
+                    await _unitOfWork.MoneyRequests.UpdateAsync(moneyRequest);
+                    await _unitOfWork.SaveChangesAsync();
+                    await _unitOfWork.CommitTransactionAsync();
+
                     return ServiceResult<bool>.Success(true, "Request rejected");
                 }
 
+                // Accept request - process transfer
                 // Verify OTP
                 if (string.IsNullOrEmpty(request.OtpCode))
-                    return ServiceResult<bool>.Failure("OTP required to accept request");
+                    return ServiceResult<bool>.Failure("OTP required");
 
-                var otpValid = await _otpRepository.GetValidOtpAsync(userId, request.OtpCode, OtpType.Transfer);
-                if (otpValid == null || otpValid.IsUsed)
+                var otp = await _unitOfWork.OtpCodes.GetValidOtpAsync(
+                    userId,
+                    request.OtpCode,
+                    OtpType.Transfer);
+
+                if (otp == null)
                     return ServiceResult<bool>.Failure("Invalid or expired OTP");
 
-                // Perform transfer (simplified - should use TransferService)
-                var senderWallet = (await _walletRepository.GetByUserIdAsync(userId)).FirstOrDefault();
-                var receiverWallet = (await _walletRepository.GetByUserIdAsync(moneyRequest.FromUserId)).FirstOrDefault();
+                // Get wallets
+                var senderWallet = await _unitOfWork.Wallets.GetByUserIdAndCurrencyAsync(
+                    userId,
+                    moneyRequest.CurrencyCode);
+                var receiverWallet = await _unitOfWork.Wallets.GetByUserIdAndCurrencyAsync(
+                    moneyRequest.FromUserId,
+                    moneyRequest.CurrencyCode);
 
                 if (senderWallet == null || receiverWallet == null)
                     return ServiceResult<bool>.Failure("Wallet not found");
@@ -141,25 +160,29 @@ namespace DigitalWallet.Application.Services
                 if (senderWallet.Balance < moneyRequest.Amount)
                     return ServiceResult<bool>.Failure("Insufficient balance");
 
+                // Update balances
                 senderWallet.Balance -= moneyRequest.Amount;
                 receiverWallet.Balance += moneyRequest.Amount;
 
-                await _walletRepository.UpdateAsync(senderWallet);
-                await _walletRepository.UpdateAsync(receiverWallet);
+                await _unitOfWork.Wallets.UpdateAsync(senderWallet);
+                await _unitOfWork.Wallets.UpdateAsync(receiverWallet);
 
                 // Update request status
                 moneyRequest.Status = MoneyRequestStatus.Accepted;
-                await _requestRepository.UpdateAsync(moneyRequest);
+                await _unitOfWork.MoneyRequests.UpdateAsync(moneyRequest);
 
                 // Mark OTP as used
-                otpValid.IsUsed = true;
-                await _otpRepository.UpdateAsync(otpValid);
+                await _unitOfWork.OtpCodes.MarkAsUsedAsync(otp.Id);
 
-                return ServiceResult<bool>.Success(true, "Request accepted and transfer completed");
+                await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.CommitTransactionAsync();
+
+                return ServiceResult<bool>.Success(true, "Request accepted and payment processed");
             }
             catch (Exception ex)
             {
-                return ServiceResult<bool>.Failure($"Error responding to request: {ex.Message}");
+                await _unitOfWork.RollbackTransactionAsync();
+                return ServiceResult<bool>.Failure($"Error processing request: {ex.Message}");
             }
         }
     }

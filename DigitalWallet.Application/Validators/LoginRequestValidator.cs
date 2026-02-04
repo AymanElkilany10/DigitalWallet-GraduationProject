@@ -8,7 +8,7 @@ namespace DigitalWallet.Application.Validators
         public LoginRequestValidator()
         {
             RuleFor(x => x.EmailOrPhone)
-                .NotEmpty().WithMessage("Email or phone is required");
+                .NotEmpty().WithMessage("Email or phone number is required");
 
             RuleFor(x => x.Password)
                 .NotEmpty().WithMessage("Password is required");

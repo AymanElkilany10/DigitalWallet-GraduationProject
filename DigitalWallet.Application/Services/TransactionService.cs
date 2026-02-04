@@ -8,12 +8,12 @@ namespace DigitalWallet.Application.Services
 {
     public class TransactionService : ITransactionService
     {
-        private readonly ITransactionRepository _transactionRepository;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
 
-        public TransactionService(ITransactionRepository transactionRepository, IMapper mapper)
+        public TransactionService(IUnitOfWork unitOfWork, IMapper mapper)
         {
-            _transactionRepository = transactionRepository;
+            _unitOfWork = unitOfWork;
             _mapper = mapper;
         }
 
@@ -21,8 +21,7 @@ namespace DigitalWallet.Application.Services
         {
             try
             {
-                var transaction = await _transactionRepository.GetByIdAsync(transactionId);
-
+                var transaction = await _unitOfWork.Transactions.GetByIdAsync(transactionId);
                 if (transaction == null)
                     return ServiceResult<TransactionDto>.Failure("Transaction not found");
 
@@ -31,7 +30,8 @@ namespace DigitalWallet.Application.Services
             }
             catch (Exception ex)
             {
-                return ServiceResult<TransactionDto>.Failure($"Error retrieving transaction: {ex.Message}");
+                return ServiceResult<TransactionDto>.Failure(
+                    $"Error retrieving transaction: {ex.Message}");
             }
         }
 
@@ -40,8 +40,9 @@ namespace DigitalWallet.Application.Services
         {
             try
             {
-                var transactions = await _transactionRepository.GetByWalletIdAsync(walletId, pageNumber, pageSize);
-                var totalCount = await _transactionRepository.GetCountByWalletIdAsync(walletId);
+                var transactions = await _unitOfWork.Transactions.GetByWalletIdAsync(
+                    walletId, pageNumber, pageSize);
+                var totalCount = await _unitOfWork.Transactions.GetCountByWalletIdAsync(walletId);
 
                 var transactionDtos = _mapper.Map<List<TransactionDto>>(transactions);
                 var paginatedResult = PaginatedResult<TransactionDto>.Create(

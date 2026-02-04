@@ -10,41 +10,30 @@ namespace DigitalWallet.Application.Services
 {
     public class FakeBankService : IFakeBankService
     {
-        private readonly IFakeBankAccountRepository _bankAccountRepository;
-        private readonly IFakeBankTransactionRepository _bankTransactionRepository;
-        private readonly IWalletRepository _walletRepository;
-        private readonly ITransactionRepository _transactionRepository;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
 
-        public FakeBankService(
-            IFakeBankAccountRepository bankAccountRepository,
-            IFakeBankTransactionRepository bankTransactionRepository,
-            IWalletRepository walletRepository,
-            ITransactionRepository transactionRepository,
-            IMapper mapper)
+        public FakeBankService(IUnitOfWork unitOfWork, IMapper mapper)
         {
-            _bankAccountRepository = bankAccountRepository;
-            _bankTransactionRepository = bankTransactionRepository;
-            _walletRepository = walletRepository;
-            _transactionRepository = transactionRepository;
+            _unitOfWork = unitOfWork;
             _mapper = mapper;
         }
 
         public async Task<ServiceResult<FakeBankTransactionDto>> DepositAsync(DepositRequestDto request)
         {
+            await _unitOfWork.BeginTransactionAsync();
             try
             {
-                // Get or create bank account
-                var bankAccount = await _bankAccountRepository.GetByUserIdAsync(request.UserId);
+                var bankAccount = await _unitOfWork.FakeBankAccounts.GetByUserIdAsync(request.UserId);
                 if (bankAccount == null)
                     return ServiceResult<FakeBankTransactionDto>.Failure("Bank account not found");
 
-                // Check bank balance
                 if (bankAccount.Balance < request.Amount)
-                    return ServiceResult<FakeBankTransactionDto>.Failure("Insufficient bank balance");
+                    return ServiceResult<FakeBankTransactionDto>.Failure(
+                        "Insufficient bank balance");
 
-                // Get user wallet
-                var wallet = (await _walletRepository.GetByUserIdAsync(request.UserId)).FirstOrDefault();
+                var wallet = await _unitOfWork.Wallets.GetByUserIdAndCurrencyAsync(
+                    request.UserId, "EGP");
                 if (wallet == null)
                     return ServiceResult<FakeBankTransactionDto>.Failure("Wallet not found");
 
@@ -54,105 +43,155 @@ namespace DigitalWallet.Application.Services
                     UserId = request.UserId,
                     Amount = request.Amount,
                     Type = "deposit",
-                    Status = TransactionStatus.Pending,
-                    DelaySeconds = 5 // Simulate delay
+                    Status = TransactionStatus.Success,
+                    DelaySeconds = 5 // Simulate processing delay
                 };
 
-                await _bankTransactionRepository.AddAsync(bankTransaction);
+                await _unitOfWork.FakeBankTransactions.AddAsync(bankTransaction);
 
-                // Simulate processing delay
-                await Task.Delay(bankTransaction.DelaySeconds * 1000);
-
-                // Update balances
+                // Simulate delay (in production, use background job)
+                // For now, process immediately
                 bankAccount.Balance -= request.Amount;
                 wallet.Balance += request.Amount;
 
-                await _bankAccountRepository.UpdateAsync(bankAccount);
-                await _walletRepository.UpdateAsync(wallet);
+                await _unitOfWork.FakeBankAccounts.UpdateAsync(bankAccount);
+                await _unitOfWork.Wallets.UpdateAsync(wallet);
 
-                // Update transaction status
-                bankTransaction.Status = TransactionStatus.Success;
-                await _bankTransactionRepository.UpdateAsync(bankTransaction);
-
-                // Create wallet transaction
-                var walletTransaction = new Transaction
+                // Create transaction record
+                var transaction = new Domain.Entities.Transaction
                 {
                     WalletId = wallet.Id,
                     Type = TransactionType.Deposit,
                     Amount = request.Amount,
-                    CurrencyCode = wallet.CurrencyCode,
+                    CurrencyCode = "EGP",
                     Status = TransactionStatus.Success,
-                    Description = "Deposit from bank",
+                    Description = "Deposit from bank account",
                     Reference = bankTransaction.Id.ToString()
                 };
 
-                await _transactionRepository.AddAsync(walletTransaction);
+                await _unitOfWork.Transactions.AddAsync(transaction);
+
+                // Create notification
+                var notification = new Notification
+                {
+                    UserId = request.UserId,
+                    Title = "Deposit Successful",
+                    Body = $"Deposited {request.Amount} EGP to your wallet",
+                    Type = NotificationType.Transaction,
+                    IsRead = false
+                };
+
+                await _unitOfWork.Notifications.AddAsync(notification);
+
+                await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.CommitTransactionAsync();
 
                 var transactionDto = _mapper.Map<FakeBankTransactionDto>(bankTransaction);
-                return ServiceResult<FakeBankTransactionDto>.Success(transactionDto, "Deposit successful");
+                return ServiceResult<FakeBankTransactionDto>.Success(
+                    transactionDto,
+                    "Deposit successful");
             }
             catch (Exception ex)
             {
-                return ServiceResult<FakeBankTransactionDto>.Failure($"Deposit failed: {ex.Message}");
+                await _unitOfWork.RollbackTransactionAsync();
+                return ServiceResult<FakeBankTransactionDto>.Failure(
+                    $"Deposit failed: {ex.Message}");
             }
         }
 
         public async Task<ServiceResult<FakeBankTransactionDto>> WithdrawAsync(WithdrawRequestDto request)
         {
+            await _unitOfWork.BeginTransactionAsync();
             try
             {
-                var wallet = (await _walletRepository.GetByUserIdAsync(request.UserId)).FirstOrDefault();
+                var wallet = await _unitOfWork.Wallets.GetByUserIdAndCurrencyAsync(
+                    request.UserId, "EGP");
                 if (wallet == null)
                     return ServiceResult<FakeBankTransactionDto>.Failure("Wallet not found");
 
                 if (wallet.Balance < request.Amount)
-                    return ServiceResult<FakeBankTransactionDto>.Failure("Insufficient wallet balance");
+                    return ServiceResult<FakeBankTransactionDto>.Failure(
+                        "Insufficient wallet balance");
 
-                var bankAccount = await _bankAccountRepository.GetByUserIdAsync(request.UserId);
+                var bankAccount = await _unitOfWork.FakeBankAccounts.GetByUserIdAsync(request.UserId);
                 if (bankAccount == null)
                     return ServiceResult<FakeBankTransactionDto>.Failure("Bank account not found");
 
+                // Create fake bank transaction
                 var bankTransaction = new FakeBankTransaction
                 {
                     UserId = request.UserId,
                     Amount = request.Amount,
                     Type = "withdraw",
-                    Status = TransactionStatus.Pending,
+                    Status = TransactionStatus.Success,
                     DelaySeconds = 5
                 };
 
-                await _bankTransactionRepository.AddAsync(bankTransaction);
+                await _unitOfWork.FakeBankTransactions.AddAsync(bankTransaction);
 
-                await Task.Delay(bankTransaction.DelaySeconds * 1000);
-
+                // Process withdrawal
                 wallet.Balance -= request.Amount;
                 bankAccount.Balance += request.Amount;
 
-                await _walletRepository.UpdateAsync(wallet);
-                await _bankAccountRepository.UpdateAsync(bankAccount);
+                await _unitOfWork.Wallets.UpdateAsync(wallet);
+                await _unitOfWork.FakeBankAccounts.UpdateAsync(bankAccount);
 
-                bankTransaction.Status = TransactionStatus.Success;
-                await _bankTransactionRepository.UpdateAsync(bankTransaction);
-
-                var walletTransaction = new Transaction
+                // Create transaction record
+                var transaction = new Domain.Entities.Transaction
                 {
                     WalletId = wallet.Id,
                     Type = TransactionType.Withdraw,
                     Amount = -request.Amount,
-                    CurrencyCode = wallet.CurrencyCode,
+                    CurrencyCode = "EGP",
                     Status = TransactionStatus.Success,
-                    Description = "Withdraw to bank",
+                    Description = "Withdrawal to bank account",
                     Reference = bankTransaction.Id.ToString()
                 };
 
-                await _transactionRepository.AddAsync(walletTransaction);
+                await _unitOfWork.Transactions.AddAsync(transaction);
+
+                // Create notification
+                var notification = new Notification
+                {
+                    UserId = request.UserId,
+                    Title = "Withdrawal Successful",
+                    Body = $"Withdrawn {request.Amount} EGP from your wallet",
+                    Type = NotificationType.Transaction,
+                    IsRead = false
+                };
+
+                await _unitOfWork.Notifications.AddAsync(notification);
+
+                await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.CommitTransactionAsync();
 
                 var transactionDto = _mapper.Map<FakeBankTransactionDto>(bankTransaction);
-                return ServiceResult<FakeBankTransactionDto>.Success(transactionDto, "Withdrawal successful");
+                return ServiceResult<FakeBankTransactionDto>.Success(
+                    transactionDto,
+                    "Withdrawal successful");
             }
             catch (Exception ex)
             {
-                return ServiceResult<FakeBankTransactionDto>.Failure($"Withdrawal failed: {ex.Message}");
+                await _unitOfWork.RollbackTransactionAsync();
+                return ServiceResult<FakeBankTransactionDto>.Failure(
+                    $"Withdrawal failed: {ex.Message}");
+            }
+        }
+
+        public async Task<ServiceResult<decimal>> GetBankBalanceAsync(Guid userId)
+        {
+            try
+            {
+                var bankAccount = await _unitOfWork.FakeBankAccounts.GetByUserIdAsync(userId);
+                if (bankAccount == null)
+                    return ServiceResult<decimal>.Failure("Bank account not found");
+
+                return ServiceResult<decimal>.Success(bankAccount.Balance);
+            }
+            catch (Exception ex)
+            {
+                return ServiceResult<decimal>.Failure(
+                    $"Error retrieving bank balance: {ex.Message}");
             }
         }
     }

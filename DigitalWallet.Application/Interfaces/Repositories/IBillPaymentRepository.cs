@@ -2,11 +2,9 @@
 
 namespace DigitalWallet.Application.Interfaces.Repositories
 {
-    public interface IBillPaymentRepository
+    public interface IBillPaymentRepository : IBaseRepository<BillPayment>
     {
-        Task<BillPayment?> GetByIdAsync(Guid id);
-        Task<IEnumerable<BillPayment>> GetByUserIdAsync(Guid userId);
-        Task<BillPayment> AddAsync(BillPayment billPayment);
-        Task UpdateAsync(BillPayment billPayment);
+        Task<IEnumerable<BillPayment>> GetByUserIdAsync(Guid userId, int pageNumber, int pageSize);
+        Task<IEnumerable<BillPayment>> GetByWalletIdAsync(Guid walletId);
     }
 }

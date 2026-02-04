@@ -2,11 +2,9 @@
 
 namespace DigitalWallet.Application.Interfaces.Repositories
 {
-    public interface ITransferRepository
+    public interface ITransferRepository : IBaseRepository<Transfer>
     {
-        Task<Transfer?> GetByIdAsync(Guid id);
-        Task<IEnumerable<Transfer>> GetByWalletIdAsync(Guid walletId);
-        Task<Transfer> AddAsync(Transfer transfer);
-        Task UpdateAsync(Transfer transfer);
+        Task<IEnumerable<Transfer>> GetBySenderWalletIdAsync(Guid walletId, int pageNumber, int pageSize);
+        Task<IEnumerable<Transfer>> GetByReceiverWalletIdAsync(Guid walletId, int pageNumber, int pageSize);
     }
 }

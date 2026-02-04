@@ -10,26 +10,12 @@ namespace DigitalWallet.Application.Services
 {
     public class BillPaymentService : IBillPaymentService
     {
-        private readonly IBillPaymentRepository _billPaymentRepository;
-        private readonly IBillerRepository _billerRepository;
-        private readonly IWalletRepository _walletRepository;
-        private readonly ITransactionRepository _transactionRepository;
-        private readonly IOtpCodeRepository _otpRepository;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
 
-        public BillPaymentService(
-            IBillPaymentRepository billPaymentRepository,
-            IBillerRepository billerRepository,
-            IWalletRepository walletRepository,
-            ITransactionRepository transactionRepository,
-            IOtpCodeRepository otpRepository,
-            IMapper mapper)
+        public BillPaymentService(IUnitOfWork unitOfWork, IMapper mapper)
         {
-            _billPaymentRepository = billPaymentRepository;
-            _billerRepository = billerRepository;
-            _walletRepository = walletRepository;
-            _transactionRepository = transactionRepository;
-            _otpRepository = otpRepository;
+            _unitOfWork = unitOfWork;
             _mapper = mapper;
         }
 
@@ -37,42 +23,45 @@ namespace DigitalWallet.Application.Services
         {
             try
             {
-                var billers = await _billerRepository.GetAllActiveAsync();
+                var billers = await _unitOfWork.Billers.GetActiveBillersAsync();
                 var billerDtos = _mapper.Map<IEnumerable<BillerDto>>(billers);
-
                 return ServiceResult<IEnumerable<BillerDto>>.Success(billerDtos);
             }
             catch (Exception ex)
             {
-                return ServiceResult<IEnumerable<BillerDto>>.Failure($"Error retrieving billers: {ex.Message}");
+                return ServiceResult<IEnumerable<BillerDto>>.Failure(
+                    $"Error retrieving billers: {ex.Message}");
             }
         }
 
-        public async Task<ServiceResult<BillPaymentDto>> PayBillAsync(Guid userId, PayBillRequestDto request)
+        public async Task<ServiceResult<BillPaymentDto>> PayBillAsync(
+            Guid userId,
+            PayBillRequestDto request)
         {
+            await _unitOfWork.BeginTransactionAsync();
             try
             {
                 // Verify OTP
-                var wallet = await _walletRepository.GetByIdAsync(request.WalletId);
-                if (wallet == null)
-                    return ServiceResult<BillPaymentDto>.Failure("Wallet not found");
+                var otp = await _unitOfWork.OtpCodes.GetValidOtpAsync(
+                    userId,
+                    request.OtpCode,
+                    OtpType.Transfer);
 
-                var otpValid = await _otpRepository.GetValidOtpAsync(userId, request.OtpCode, OtpType.Transfer);
-                if (otpValid == null || otpValid.IsUsed)
+                if (otp == null)
                     return ServiceResult<BillPaymentDto>.Failure("Invalid or expired OTP");
 
-                // Verify biller
-                var biller = await _billerRepository.GetByIdAsync(request.BillerId);
-                if (biller == null || !biller.IsActive)
-                    return ServiceResult<BillPaymentDto>.Failure("Biller not found or inactive");
+                // Verify wallet
+                var wallet = await _unitOfWork.Wallets.GetByIdAsync(request.WalletId);
+                if (wallet == null || wallet.UserId != userId)
+                    return ServiceResult<BillPaymentDto>.Failure("Wallet not found");
 
-                // Check balance
                 if (wallet.Balance < request.Amount)
                     return ServiceResult<BillPaymentDto>.Failure("Insufficient balance");
 
-                // Deduct amount
-                wallet.Balance -= request.Amount;
-                await _walletRepository.UpdateAsync(wallet);
+                // Verify biller
+                var biller = await _unitOfWork.Billers.GetByIdAsync(request.BillerId);
+                if (biller == null || !biller.IsActive)
+                    return ServiceResult<BillPaymentDto>.Failure("Biller not available");
 
                 // Create bill payment
                 var billPayment = new BillPayment
@@ -83,54 +72,79 @@ namespace DigitalWallet.Application.Services
                     Amount = request.Amount,
                     CurrencyCode = wallet.CurrencyCode,
                     Status = TransactionStatus.Success,
-                    ReceiptPath = $"/receipts/bill_{Guid.NewGuid()}.pdf" // Simplified
+                    ReceiptPath = $"/receipts/bill_{Guid.NewGuid()}.pdf"
                 };
 
-                await _billPaymentRepository.AddAsync(billPayment);
+                await _unitOfWork.BillPayments.AddAsync(billPayment);
 
-                // Create transaction
-                var transaction = new Transaction
+                // Update wallet balance
+                wallet.Balance -= request.Amount;
+                await _unitOfWork.Wallets.UpdateAsync(wallet);
+
+                // Create transaction record
+                var transaction = new Domain.Entities.Transaction
                 {
                     WalletId = wallet.Id,
                     Type = TransactionType.Bill,
                     Amount = -request.Amount,
                     CurrencyCode = wallet.CurrencyCode,
                     Status = TransactionStatus.Success,
-                    Description = $"Bill payment to {biller.Name}",
+                    Description = $"Bill payment - {biller.Name}",
                     Reference = billPayment.Id.ToString()
                 };
 
-                await _transactionRepository.AddAsync(transaction);
+                await _unitOfWork.Transactions.AddAsync(transaction);
 
                 // Mark OTP as used
-                otpValid.IsUsed = true;
-                await _otpRepository.UpdateAsync(otpValid);
+                await _unitOfWork.OtpCodes.MarkAsUsedAsync(otp.Id);
 
-                // Load biller for mapping
-                billPayment.Biller = biller;
+                // Create notification
+                var notification = new Notification
+                {
+                    UserId = userId,
+                    Title = "Bill Payment Successful",
+                    Body = $"Paid {request.Amount} {wallet.CurrencyCode} to {biller.Name}",
+                    Type = NotificationType.Transaction,
+                    IsRead = false
+                };
 
-                var billPaymentDto = _mapper.Map<BillPaymentDto>(billPayment);
-                return ServiceResult<BillPaymentDto>.Success(billPaymentDto, "Bill paid successfully");
+                await _unitOfWork.Notifications.AddAsync(notification);
+
+                await _unitOfWork.SaveChangesAsync();
+                await _unitOfWork.CommitTransactionAsync();
+
+                var paymentDto = _mapper.Map<BillPaymentDto>(billPayment);
+                return ServiceResult<BillPaymentDto>.Success(
+                    paymentDto,
+                    "Bill payment successful");
             }
             catch (Exception ex)
             {
-                return ServiceResult<BillPaymentDto>.Failure($"Bill payment failed: {ex.Message}");
+                await _unitOfWork.RollbackTransactionAsync();
+                return ServiceResult<BillPaymentDto>.Failure(
+                    $"Bill payment failed: {ex.Message}");
             }
         }
 
-        public async Task<ServiceResult<IEnumerable<BillPaymentDto>>> GetUserBillPaymentsAsync(Guid userId)
+        public async Task<ServiceResult<PaginatedResult<BillPaymentDto>>> GetPaymentHistoryAsync(
+            Guid userId, int pageNumber = 1, int pageSize = 20)
         {
             try
             {
-                var billPayments = await _billPaymentRepository.GetByUserIdAsync(userId);
-                var billPaymentDtos = _mapper.Map<IEnumerable<BillPaymentDto>>(billPayments);
+                var payments = await _unitOfWork.BillPayments.GetByUserIdAsync(
+                    userId, pageNumber, pageSize);
+                var totalCount = payments.Count();
 
-                return ServiceResult<IEnumerable<BillPaymentDto>>.Success(billPaymentDtos);
+                var paymentDtos = _mapper.Map<List<BillPaymentDto>>(payments);
+                var paginatedResult = PaginatedResult<BillPaymentDto>.Create(
+                    paymentDtos, totalCount, pageNumber, pageSize);
+
+                return ServiceResult<PaginatedResult<BillPaymentDto>>.Success(paginatedResult);
             }
             catch (Exception ex)
             {
-                return ServiceResult<IEnumerable<BillPaymentDto>>.Failure(
-                    $"Error retrieving bill payments: {ex.Message}");
+                return ServiceResult<PaginatedResult<BillPaymentDto>>.Failure(
+                    $"Error retrieving payment history: {ex.Message}");
             }
         }
     }

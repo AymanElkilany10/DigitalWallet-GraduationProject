@@ -8,17 +8,12 @@ namespace DigitalWallet.Application.Services
 {
     public class AdminService : IAdminService
     {
-        private readonly IUserRepository _userRepository;
-        private readonly IFraudLogRepository _fraudLogRepository;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
 
-        public AdminService(
-            IUserRepository userRepository,
-            IFraudLogRepository fraudLogRepository,
-            IMapper mapper)
+        public AdminService(IUnitOfWork unitOfWork, IMapper mapper)
         {
-            _userRepository = userRepository;
-            _fraudLogRepository = fraudLogRepository;
+            _unitOfWork = unitOfWork;
             _mapper = mapper;
         }
 
@@ -26,9 +21,8 @@ namespace DigitalWallet.Application.Services
         {
             try
             {
-                var users = await _userRepository.GetAllAsync();
+                var users = await _unitOfWork.Users.GetAllAsync();
                 var userDtos = _mapper.Map<IEnumerable<UserManagementDto>>(users);
-
                 return ServiceResult<IEnumerable<UserManagementDto>>.Success(userDtos);
             }
             catch (Exception ex)
@@ -42,9 +36,8 @@ namespace DigitalWallet.Application.Services
         {
             try
             {
-                var logs = await _fraudLogRepository.GetRecentLogsAsync(24);
+                var logs = await _unitOfWork.FraudLogs.GetRecentLogsAsync(24);
                 var logDtos = _mapper.Map<IEnumerable<FraudLogDto>>(logs);
-
                 return ServiceResult<IEnumerable<FraudLogDto>>.Success(logDtos);
             }
             catch (Exception ex)

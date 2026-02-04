@@ -8,12 +8,12 @@ namespace DigitalWallet.Application.Services
 {
     public class NotificationService : INotificationService
     {
-        private readonly INotificationRepository _notificationRepository;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
 
-        public NotificationService(INotificationRepository notificationRepository, IMapper mapper)
+        public NotificationService(IUnitOfWork unitOfWork, IMapper mapper)
         {
-            _notificationRepository = notificationRepository;
+            _unitOfWork = unitOfWork;
             _mapper = mapper;
         }
 
@@ -22,9 +22,9 @@ namespace DigitalWallet.Application.Services
         {
             try
             {
-                var notifications = await _notificationRepository.GetByUserIdAsync(userId, pageNumber, pageSize);
+                var notifications = await _unitOfWork.Notifications.GetByUserIdAsync(
+                    userId, pageNumber, pageSize);
                 var notificationDtos = _mapper.Map<IEnumerable<NotificationDto>>(notifications);
-
                 return ServiceResult<IEnumerable<NotificationDto>>.Success(notificationDtos);
             }
             catch (Exception ex)
@@ -38,12 +38,14 @@ namespace DigitalWallet.Application.Services
         {
             try
             {
-                await _notificationRepository.MarkAsReadAsync(notificationId);
+                await _unitOfWork.Notifications.MarkAsReadAsync(notificationId);
+                await _unitOfWork.SaveChangesAsync();
                 return ServiceResult<bool>.Success(true, "Notification marked as read");
             }
             catch (Exception ex)
             {
-                return ServiceResult<bool>.Failure($"Error marking notification as read: {ex.Message}");
+                return ServiceResult<bool>.Failure(
+                    $"Error marking notification as read: {ex.Message}");
             }
         }
 
@@ -51,12 +53,13 @@ namespace DigitalWallet.Application.Services
         {
             try
             {
-                var count = await _notificationRepository.GetUnreadCountAsync(userId);
+                var count = await _unitOfWork.Notifications.GetUnreadCountAsync(userId);
                 return ServiceResult<int>.Success(count);
             }
             catch (Exception ex)
             {
-                return ServiceResult<int>.Failure($"Error getting unread count: {ex.Message}");
+                return ServiceResult<int>.Failure(
+                    $"Error getting unread count: {ex.Message}");
             }
         }
     }

@@ -8,12 +8,12 @@ namespace DigitalWallet.Application.Services
 {
     public class UserService : IUserService
     {
-        private readonly IUserRepository _userRepository;
+        private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
 
-        public UserService(IUserRepository userRepository, IMapper mapper)
+        public UserService(IUnitOfWork unitOfWork, IMapper mapper)
         {
-            _userRepository = userRepository;
+            _unitOfWork = unitOfWork;
             _mapper = mapper;
         }
 
@@ -21,8 +21,7 @@ namespace DigitalWallet.Application.Services
         {
             try
             {
-                var user = await _userRepository.GetByIdAsync(userId);
-
+                var user = await _unitOfWork.Users.GetByIdAsync(userId);
                 if (user == null)
                     return ServiceResult<UserDto>.Failure("User not found");
 
@@ -39,8 +38,24 @@ namespace DigitalWallet.Application.Services
         {
             try
             {
-                var user = await _userRepository.GetByEmailAsync(email);
+                var user = await _unitOfWork.Users.GetByEmailAsync(email);
+                if (user == null)
+                    return ServiceResult<UserDto>.Failure("User not found");
 
+                var userDto = _mapper.Map<UserDto>(user);
+                return ServiceResult<UserDto>.Success(userDto);
+            }
+            catch (Exception ex)
+            {
+                return ServiceResult<UserDto>.Failure($"Error retrieving user: {ex.Message}");
+            }
+        }
+
+        public async Task<ServiceResult<UserDto>> GetUserByPhoneAsync(string phone)
+        {
+            try
+            {
+                var user = await _unitOfWork.Users.GetByPhoneNumberAsync(phone);
                 if (user == null)
                     return ServiceResult<UserDto>.Failure("User not found");
 

@@ -2,13 +2,10 @@
 
 namespace DigitalWallet.Application.Interfaces.Repositories
 {
-    public interface IWalletRepository
+    public interface IWalletRepository : IBaseRepository<Wallet>
     {
-        Task<Wallet?> GetByIdAsync(Guid id);
-        Task<IEnumerable<Wallet>> GetByUserIdAsync(Guid userId);
-        Task<Wallet?> GetByUserIdAndCurrencyAsync(Guid userId, string currency);
-        Task<Wallet> AddAsync(Wallet wallet);
-        Task UpdateAsync(Wallet wallet);
-        Task DeleteAsync(Guid id);
+        Task<Wallet?> GetByUserIdAndCurrencyAsync(Guid userId, string currencyCode);
+        Task<IEnumerable<Wallet>> GetAllByUserIdAsync(Guid userId);
+        Task<decimal> GetTotalBalanceAsync(Guid userId);
     }
 }
