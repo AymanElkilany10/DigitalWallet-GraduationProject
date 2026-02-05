@@ -1,15 +1,14 @@
-﻿using AutoMapper;
+﻿using System.Reflection;
+using System;
+using AutoMapper;
 using DigitalWallet.Application.Common;
 using DigitalWallet.Application.DTOs.Auth;
 using DigitalWallet.Application.Interfaces.Repositories;
 using DigitalWallet.Application.Interfaces.Services;
 using DigitalWallet.Domain.Entities;
 using DigitalWallet.Domain.Enums;
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text;
-using Microsoft.IdentityModel.Tokens;
+using DigitalWallet.Application.Helpers;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace DigitalWallet.Application.Services
 {
@@ -17,14 +16,16 @@ namespace DigitalWallet.Application.Services
     {
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
+        private readonly JwtTokenGenerator _jwtTokenGenerator;
 
-        private const string JwtSecretKey = "YourSuperSecretKeyForJWTTokenGeneration123456";
-        private const int JwtExpirationHours = 24;
-
-        public AuthService(IUnitOfWork unitOfWork, IMapper mapper)
+        public AuthService(
+            IUnitOfWork unitOfWork,
+            IMapper mapper,
+            JwtTokenGenerator jwtTokenGenerator)
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
+            _jwtTokenGenerator = jwtTokenGenerator;
         }
 
         public async Task<ServiceResult<LoginResponseDto>> RegisterAsync(RegisterRequestDto request)
@@ -37,10 +38,10 @@ namespace DigitalWallet.Application.Services
                 if (await _unitOfWork.Users.PhoneExistsAsync(request.PhoneNumber))
                     return ServiceResult<LoginResponseDto>.Failure("Phone number already registered");
 
-                var salt = GenerateSalt();
-                var passwordHash = HashPassword(request.Password, salt);
+                // Use PasswordHasher helper
+                var salt = PasswordHasher.GenerateSalt();
+                var passwordHash = PasswordHasher.HashPassword(request.Password, salt);
 
-                // Use AutoMapper to map DTO to Entity
                 var user = _mapper.Map<User>(request);
                 user.PasswordHash = passwordHash;
                 user.Salt = salt;
@@ -63,21 +64,22 @@ namespace DigitalWallet.Application.Services
                 var fakeBankAccount = new FakeBankAccount
                 {
                     UserId = user.Id,
-                    AccountNumber = GenerateAccountNumber(),
+                    AccountNumber = OtpGenerator.GenerateAccountNumber(), // Use helper
                     Balance = 10000
                 };
 
                 await _unitOfWork.FakeBankAccounts.AddAsync(fakeBankAccount);
                 await _unitOfWork.SaveChangesAsync();
 
-                var token = GenerateJwtToken(user);
-                var refreshToken = GenerateRefreshToken();
+                // Use JwtTokenGenerator helper
+                var token = _jwtTokenGenerator.GenerateToken(user);
+                var refreshToken = OtpGenerator.GenerateRefreshToken(); // Use helper
 
                 var response = new LoginResponseDto
                 {
                     Token = token,
                     RefreshToken = refreshToken,
-                    ExpiresAt = DateTime.UtcNow.AddHours(JwtExpirationHours),
+                    ExpiresAt = DateTime.UtcNow.AddHours(24),
                     UserId = user.Id,
                     FullName = user.FullName,
                     Email = user.Email,
@@ -106,14 +108,15 @@ namespace DigitalWallet.Application.Services
                 if (user == null)
                     return ServiceResult<LoginResponseDto>.Failure("Invalid credentials");
 
-                var passwordHash = HashPassword(request.Password, user.Salt);
-                if (passwordHash != user.PasswordHash)
+                // Use PasswordHasher helper
+                if (!PasswordHasher.VerifyPassword(request.Password, user.Salt, user.PasswordHash))
                     return ServiceResult<LoginResponseDto>.Failure("Invalid credentials");
 
                 if (user.Status != UserStatus.Active)
                     return ServiceResult<LoginResponseDto>.Failure("Account is suspended");
 
-                var otpCode = GenerateOtpCode();
+                // Use OtpGenerator helper
+                var otpCode = OtpGenerator.GenerateOtpCode();
                 var otp = new OtpCode
                 {
                     UserId = user.Id,
@@ -185,7 +188,8 @@ namespace DigitalWallet.Application.Services
                 if (user == null)
                     return ServiceResult<bool>.Failure("User not found");
 
-                var otpCode = GenerateOtpCode();
+                // Use OtpGenerator helper
+                var otpCode = OtpGenerator.GenerateOtpCode();
                 var type = Enum.Parse<OtpType>(otpType, true);
 
                 var otp = new OtpCode
@@ -209,75 +213,5 @@ namespace DigitalWallet.Application.Services
                 return ServiceResult<bool>.Failure($"Failed to send OTP: {ex.Message}");
             }
         }
-
-        #region Private Helper Methods
-
-        private string GenerateSalt()
-        {
-            var saltBytes = new byte[32];
-            using (var rng = RandomNumberGenerator.Create())
-            {
-                rng.GetBytes(saltBytes);
-            }
-            return Convert.ToBase64String(saltBytes);
-        }
-
-        private string HashPassword(string password, string salt)
-        {
-            var combinedBytes = Encoding.UTF8.GetBytes(password + salt);
-            using (var sha256 = SHA256.Create())
-            {
-                var hashBytes = sha256.ComputeHash(combinedBytes);
-                return Convert.ToBase64String(hashBytes);
-            }
-        }
-
-        private string GenerateOtpCode()
-        {
-            var random = new Random();
-            return random.Next(100000, 999999).ToString();
-        }
-
-        private string GenerateAccountNumber()
-        {
-            var random = new Random();
-            return $"FBA{random.Next(10000000, 99999999)}";
-        }
-
-        private string GenerateRefreshToken()
-        {
-            var randomBytes = new byte[32];
-            using (var rng = RandomNumberGenerator.Create())
-            {
-                rng.GetBytes(randomBytes);
-            }
-            return Convert.ToBase64String(randomBytes);
-        }
-
-        private string GenerateJwtToken(User user)
-        {
-            var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.ASCII.GetBytes(JwtSecretKey);
-
-            var tokenDescriptor = new SecurityTokenDescriptor
-            {
-                Subject = new ClaimsIdentity(new[]
-                {
-                    new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                    new Claim(ClaimTypes.Email, user.Email),
-                    new Claim(ClaimTypes.Name, user.FullName),
-                    new Claim("phone", user.PhoneNumber)
-                }),
-                Expires = DateTime.UtcNow.AddHours(JwtExpirationHours),
-                SigningCredentials = new SigningCredentials(
-                    new SymmetricSecurityKey(key),
-                    SecurityAlgorithms.HmacSha256Signature)
-            };
-
-            var token = tokenHandler.CreateToken(tokenDescriptor);
-            return tokenHandler.WriteToken(token);
-        }
-
-        #endregion
     }
 }
