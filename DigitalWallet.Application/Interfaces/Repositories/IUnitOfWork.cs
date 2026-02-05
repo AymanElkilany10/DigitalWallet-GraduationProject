@@ -14,6 +14,7 @@
         IBillPaymentRepository BillPayments { get; }
         INotificationRepository Notifications { get; }
         IFraudLogRepository FraudLogs { get; }
+        IAdminRepository Admins { get; }  // ✅ ADDED
 
         Task<int> SaveChangesAsync();
         Task BeginTransactionAsync();

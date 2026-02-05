@@ -32,8 +32,15 @@ namespace DigitalWallet.Application.Mappings
             CreateMap<Wallet, WalletBalanceDto>();
             CreateMap<CreateWalletRequestDto, Wallet>();
 
-            // Transaction mappings
+            CreateMap<Wallet, WalletManagementDto>()
+                .ForMember(dest => dest.UserName, opt => opt.MapFrom(src => src.User.FullName))
+                .ForMember(dest => dest.UserEmail, opt => opt.MapFrom(src => src.User.Email));
+
             CreateMap<Domain.Entities.Transaction, TransactionDto>()
+                .ForMember(dest => dest.Type, opt => opt.MapFrom(src => src.Type.ToString()))
+                .ForMember(dest => dest.Status, opt => opt.MapFrom(src => src.Status.ToString()));
+
+            CreateMap<Domain.Entities.Transaction, TransactionHistoryDto>()
                 .ForMember(dest => dest.Type, opt => opt.MapFrom(src => src.Type.ToString()))
                 .ForMember(dest => dest.Status, opt => opt.MapFrom(src => src.Status.ToString()));
 

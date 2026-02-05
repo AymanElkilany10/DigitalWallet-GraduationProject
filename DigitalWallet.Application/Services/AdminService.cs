@@ -46,5 +46,20 @@ namespace DigitalWallet.Application.Services
                     $"Error retrieving fraud logs: {ex.Message}");
             }
         }
+
+        public async Task<ServiceResult<IEnumerable<WalletManagementDto>>> GetAllWalletsAsync()
+        {
+            try
+            {
+                var wallets = await _unitOfWork.Wallets.GetAllAsync();
+                var walletDtos = _mapper.Map<IEnumerable<WalletManagementDto>>(wallets);
+                return ServiceResult<IEnumerable<WalletManagementDto>>.Success(walletDtos);
+            }
+            catch (Exception ex)
+            {
+                return ServiceResult<IEnumerable<WalletManagementDto>>.Failure(
+                    $"Error retrieving wallets: {ex.Message}");
+            }
+        }
     }
 }

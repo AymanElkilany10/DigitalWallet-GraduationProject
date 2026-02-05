@@ -26,6 +26,7 @@ namespace DigitalWallet.Infrastructure.Data
             BillPayments = new BillPaymentRepository(_context);
             Notifications = new NotificationRepository(_context);
             FraudLogs = new FraudLogRepository(_context);
+            Admins = new AdminRepository(_context);  // ✅ ADDED
         }
 
         public IUserRepository Users { get; private set; }
@@ -40,6 +41,7 @@ namespace DigitalWallet.Infrastructure.Data
         public IBillPaymentRepository BillPayments { get; private set; }
         public INotificationRepository Notifications { get; private set; }
         public IFraudLogRepository FraudLogs { get; private set; }
+        public IAdminRepository Admins { get; private set; }  // ✅ ADDED
 
         public async Task<int> SaveChangesAsync()
         {

@@ -8,5 +8,7 @@ namespace DigitalWallet.Application.Interfaces.Services
         Task<ServiceResult<TransactionDto>> GetTransactionByIdAsync(Guid transactionId);
         Task<ServiceResult<PaginatedResult<TransactionDto>>> GetWalletTransactionsAsync(
             Guid walletId, int pageNumber = 1, int pageSize = 20);
+        Task<ServiceResult<PaginatedResult<TransactionHistoryDto>>> GetTransactionHistoryAsync(
+            Guid walletId, int pageNumber = 1, int pageSize = 20); 
     }
 }

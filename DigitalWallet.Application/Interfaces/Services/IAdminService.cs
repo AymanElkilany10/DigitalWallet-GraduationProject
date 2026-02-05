@@ -7,5 +7,6 @@ namespace DigitalWallet.Application.Interfaces.Services
     {
         Task<ServiceResult<IEnumerable<UserManagementDto>>> GetAllUsersAsync();
         Task<ServiceResult<IEnumerable<FraudLogDto>>> GetFraudLogsAsync();
+        Task<ServiceResult<IEnumerable<WalletManagementDto>>> GetAllWalletsAsync(); 
     }
 }

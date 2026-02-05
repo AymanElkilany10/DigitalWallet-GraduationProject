@@ -56,5 +56,27 @@ namespace DigitalWallet.Application.Services
                     $"Error retrieving transactions: {ex.Message}");
             }
         }
+
+        public async Task<ServiceResult<PaginatedResult<TransactionHistoryDto>>> GetTransactionHistoryAsync(
+            Guid walletId, int pageNumber = 1, int pageSize = 20)
+        {
+            try
+            {
+                var transactions = await _unitOfWork.Transactions.GetByWalletIdAsync(
+                    walletId, pageNumber, pageSize);
+                var totalCount = await _unitOfWork.Transactions.GetCountByWalletIdAsync(walletId);
+
+                var historyDtos = _mapper.Map<List<TransactionHistoryDto>>(transactions);
+                var paginatedResult = PaginatedResult<TransactionHistoryDto>.Create(
+                    historyDtos, totalCount, pageNumber, pageSize);
+
+                return ServiceResult<PaginatedResult<TransactionHistoryDto>>.Success(paginatedResult);
+            }
+            catch (Exception ex)
+            {
+                return ServiceResult<PaginatedResult<TransactionHistoryDto>>.Failure(
+                    $"Error retrieving transaction history: {ex.Message}");
+            }
+        }
     }
 }

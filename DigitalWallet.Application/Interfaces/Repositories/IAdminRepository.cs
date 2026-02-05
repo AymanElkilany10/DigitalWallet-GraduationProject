@@ -2,15 +2,10 @@
 
 namespace DigitalWallet.Application.Interfaces.Repositories
 {
-    public interface IAdminRepository
+    public interface IAdminRepository : IBaseRepository<AdminUser>
     {
-        Task<AdminUser?> GetByIdAsync(Guid id);
         Task<AdminUser?> GetByEmailAsync(string email);
-        Task<IEnumerable<AdminUser>> GetAllAsync();
-        Task<AdminUser> AddAsync(AdminUser admin);
-        Task UpdateAsync(AdminUser admin);
-        Task DeleteAsync(Guid id);
-        Task<AdminActionsLog> LogActionAsync(AdminActionsLog log);
-        Task<IEnumerable<AdminActionsLog>> GetActionLogsAsync(Guid? adminId = null);
+        Task<bool> EmailExistsAsync(string email);
+        Task<IEnumerable<AdminUser>> GetByRoleAsync(string role);
     }
 }
