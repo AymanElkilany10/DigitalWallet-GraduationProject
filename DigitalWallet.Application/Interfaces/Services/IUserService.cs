@@ -1,12 +1,12 @@
 ﻿using DigitalWallet.Application.Common;
+using DigitalWallet.Application.DTOs.Admin;
 using DigitalWallet.Application.DTOs.Auth;
 
 namespace DigitalWallet.Application.Interfaces.Services
 {
     public interface IUserService
     {
-        Task<ServiceResult<UserDto>> GetUserByIdAsync(Guid userId);
-        Task<ServiceResult<UserDto>> GetUserByEmailAsync(string email);
-        Task<ServiceResult<UserDto>> GetUserByPhoneAsync(string phone);
+        Task<ServiceResult<UserManagementDto>> GetUserByIdAsync(Guid userId);
+        Task<ServiceResult<UserManagementDto>> GetUserByEmailAsync(string email);
     }
 }

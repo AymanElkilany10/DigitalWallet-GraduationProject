@@ -16,10 +16,8 @@ namespace DigitalWallet.Application.Mappings
     {
         public MappingProfile()
         {
-            // User mappings
-            CreateMap<User, UserDto>()
-                .ForMember(dest => dest.KycLevel, opt => opt.MapFrom(src => src.KycLevel.ToString()))
-                .ForMember(dest => dest.Status, opt => opt.MapFrom(src => src.Status.ToString()));
+            //// User
+            //CreateMap<User, UserDto>();
 
             CreateMap<User, UserManagementDto>()
                 .ForMember(dest => dest.KycLevel, opt => opt.MapFrom(src => src.KycLevel.ToString()))

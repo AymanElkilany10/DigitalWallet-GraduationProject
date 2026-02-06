@@ -1,5 +1,6 @@
 ﻿using AutoMapper;
 using DigitalWallet.Application.Common;
+using DigitalWallet.Application.DTOs.Admin;
 using DigitalWallet.Application.DTOs.Auth;
 using DigitalWallet.Application.Interfaces.Repositories;
 using DigitalWallet.Application.Interfaces.Services;
@@ -17,24 +18,24 @@ namespace DigitalWallet.Application.Services
             _mapper = mapper;
         }
 
-        public async Task<ServiceResult<UserDto>> GetUserByIdAsync(Guid userId)
+        public async Task<ServiceResult<UserManagementDto>> GetUserByIdAsync(Guid userId)
         {
             try
             {
                 var user = await _unitOfWork.Users.GetByIdAsync(userId);
                 if (user == null)
-                    return ServiceResult<UserDto>.Failure("User not found");
+                    return ServiceResult<UserManagementDto>.Failure("User not found");
 
-                var userDto = _mapper.Map<UserDto>(user);
-                return ServiceResult<UserDto>.Success(userDto);
+                var userDto = _mapper.Map<UserManagementDto>(user);
+                return ServiceResult<UserManagementDto>.Success(userDto);
             }
             catch (Exception ex)
             {
-                return ServiceResult<UserDto>.Failure($"Error retrieving user: {ex.Message}");
+                return ServiceResult<UserManagementDto>.Failure($"Error retrieving user: {ex.Message}");
             }
         }
 
-        public async Task<ServiceResult<UserDto>> GetUserByEmailAsync(string email)
+        public async Task<ServiceResult<UserManagementDto>> GetUserByEmailAsync(string email)
         {
             try
             {
@@ -57,14 +58,14 @@ namespace DigitalWallet.Application.Services
             {
                 var user = await _unitOfWork.Users.GetByPhoneNumberAsync(phone);
                 if (user == null)
-                    return ServiceResult<UserDto>.Failure("User not found");
+                    return ServiceResult<UserManagementDto>.Failure("User not found");
 
-                var userDto = _mapper.Map<UserDto>(user);
-                return ServiceResult<UserDto>.Success(userDto);
+                var userDto = _mapper.Map<UserManagementDto>(user);
+                return ServiceResult<UserManagementDto>.Success(userDto);
             }
             catch (Exception ex)
             {
-                return ServiceResult<UserDto>.Failure($"Error retrieving user: {ex.Message}");
+                return ServiceResult<UserManagementDto>.Failure($"Error retrieving user: {ex.Message}");
             }
         }
     }
