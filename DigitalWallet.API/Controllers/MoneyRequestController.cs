@@ -55,9 +55,9 @@ namespace DigitalWallet.API.Controllers
             if (!result.IsSuccess)
             {
                 _logger.LogWarning("CreateMoneyRequest failed for UserId: {UserId}. Errors: {Errors}",
-                    currentUserId, string.Join(", ", result.Errors ?? Array.Empty<string>()));
+                    currentUserId, string.Join(", ", result.Errors ?? new List<string>()));
                 return BadRequest(ApiResponse<MoneyRequestDto>.ErrorResponse(
-                    result.Errors?.FirstOrDefault() ?? "Failed to create request", result.Errors ?? Array.Empty<string>()));
+                    result.ErrorMessage ?? "Failed to create request", result.Errors));
             }
 
             return CreatedAtAction(
@@ -130,9 +130,9 @@ namespace DigitalWallet.API.Controllers
             if (!result.IsSuccess)
             {
                 _logger.LogWarning("RespondToRequest failed for UserId: {UserId}. Errors: {Errors}",
-                    currentUserId, string.Join(", ", result.Errors ?? Array.Empty<string>()));
+                    currentUserId, string.Join(", ", result.Errors ?? new List<string>()));
                 return BadRequest(ApiResponse<bool>.ErrorResponse(
-                  result.Errors?.FirstOrDefault() ?? "Failed to respond to request", result.Errors ?? Array.Empty<string>()));
+                    result.ErrorMessage ?? "Failed to respond to request", result.Errors));
             }
 
             return Ok(ApiResponse<bool>.SuccessResponse(result.Data!, result.Message ?? "Success"));

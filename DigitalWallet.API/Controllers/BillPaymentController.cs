@@ -97,9 +97,9 @@ namespace DigitalWallet.API.Controllers
             if (!result.IsSuccess)
             {
                 _logger.LogWarning("PayBill failed for UserId: {UserId}. Errors: {Errors}",
-                    currentUserId, string.Join(", ", result.Errors ?? Array.Empty<string>()));
+                    currentUserId, string.Join(", ", result.Errors ?? new List<string>()));
                 return BadRequest(ApiResponse<BillPaymentDto>.ErrorResponse(
-                    result.Errors?.FirstOrDefault() ?? "Bill payment failed", result.Errors ?? Array.Empty<string>()));
+                    result.ErrorMessage ?? "Bill payment failed", result.Errors));
             }
 
             _logger.LogInformation("PayBill succeeded for UserId: {UserId}, PaymentId: {PaymentId}",
