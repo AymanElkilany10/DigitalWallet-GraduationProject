@@ -1,6 +1,7 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using DigitalWallet.Domain.Entities;
+using DigitalWallet.Domain.Enums;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-using DigitalWallet.Domain.Entities;
 
 namespace DigitalWallet.Infrastructure.Data.Configurations
 {
@@ -31,7 +32,7 @@ namespace DigitalWallet.Infrastructure.Data.Configurations
                 .IsRequired()
                 .HasConversion<string>()
                 .HasMaxLength(30)
-                .HasDefaultValue("Support");
+                .HasDefaultValue(AdminRole.Support);  // ✅ Use enum value
 
             builder.Property(a => a.CreatedAt)
                 .IsRequired();

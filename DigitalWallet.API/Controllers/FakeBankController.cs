@@ -69,9 +69,9 @@ namespace DigitalWallet.API.Controllers
             if (!result.IsSuccess)
             {
                 _logger.LogWarning("Deposit failed for UserId: {UserId}. Errors: {Errors}",
-                    request.UserId, string.Join(", ", result.Errors ?? Array.Empty<string>()));
+                    request.UserId, string.Join(", ", result.Errors ?? new List<string>()));
                 return BadRequest(ApiResponse<FakeBankTransactionDto>.ErrorResponse(
-                    result.Errors?.FirstOrDefault() ?? "Deposit failed", result.Errors ?? Array.Empty<string>()));
+                    result.ErrorMessage ?? "Deposit failed", result.Errors));
             }
 
             _logger.LogInformation("Deposit succeeded for UserId: {UserId}, TxnId: {TxnId}",
@@ -123,9 +123,9 @@ namespace DigitalWallet.API.Controllers
             if (!result.IsSuccess)
             {
                 _logger.LogWarning("Withdraw failed for UserId: {UserId}. Errors: {Errors}",
-                    request.UserId, string.Join(", ", result.Errors ?? Array.Empty<string>()));
+                    request.UserId, string.Join(", ", result.Errors ?? new List<string>()));
                 return BadRequest(ApiResponse<FakeBankTransactionDto>.ErrorResponse(
-                    result.Errors?.FirstOrDefault() ?? "Withdrawal failed", result.Errors ?? Array.Empty<string>()));
+                    result.ErrorMessage ?? "Withdrawal failed", result.Errors));
             }
 
             _logger.LogInformation("Withdraw succeeded for UserId: {UserId}, TxnId: {TxnId}",

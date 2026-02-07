@@ -47,6 +47,19 @@ builder.Services.AddScoped<IBillPaymentService, BillPaymentService>();
 builder.Services.AddScoped<IFakeBankService, FakeBankService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IAdminService, AdminService>();
+builder.Services.AddScoped<JwtTokenGenerator>(provider =>
+{
+    var configuration = provider.GetRequiredService<IConfiguration>();
+
+    var secretKey = configuration["Jwt:SecretKey"]
+        ?? throw new InvalidOperationException("Jwt:SecretKey not found");
+
+    var issuer = configuration["Jwt:Issuer"] ?? "DigitalWallet";
+    var audience = configuration["Jwt:Audience"] ?? "DigitalWalletUsers";
+    var expirationHours = int.Parse(configuration["Jwt:ExpirationHours"] ?? "24");
+
+    return new JwtTokenGenerator(secretKey, issuer, audience, expirationHours);
+});
 
 // ── 1.4 Helper Services ─────────────────────────────────────────────────────
 // Note: JwtTokenGenerator should be properly implemented in Application.Helpers
@@ -195,15 +208,14 @@ app.MapGet("/", () => Results.Ok(new
 }));
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SECTION 3: Database Migration (Optional - for Development)
+// TEMPORARILY DISABLED - Database is on Ayman device
 // ═══════════════════════════════════════════════════════════════════════════
-
-// Automatically apply migrations in development (optional)
+/*
 if (app.Environment.IsDevelopment())
 {
     using var scope = app.Services.CreateScope();
     var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-
+    
     try
     {
         dbContext.Database.Migrate();
@@ -214,6 +226,7 @@ if (app.Environment.IsDevelopment())
         app.Logger.LogError(ex, "An error occurred while migrating the database");
     }
 }
+*/
 
 // ═══════════════════════════════════════════════════════════════════════════
 // SECTION 4: Application Startup
