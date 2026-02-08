@@ -9,6 +9,10 @@ using DigitalWallet.Application.Services;
 using DigitalWallet.Application.Helpers;
 using DigitalWallet.API.Middleware;
 using DigitalWallet.API.Filters;
+using DigitalWallet.API.Extensions;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -36,6 +40,8 @@ builder.Services.AddScoped<IFakeBankTransactionRepository, FakeBankTransactionRe
 builder.Services.AddScoped<IOtpCodeRepository, OtpCodeRepository>();
 builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
 builder.Services.AddScoped<IAdminRepository, AdminRepository>();
+builder.Services.AddScoped<IMoneyRequestRepository, MoneyRequestRepository>();
+builder.Services.AddScoped<IFraudLogRepository, FraudLogRepository>();
 
 // ── 1.3 Service Registration ───────────────────────────────────────────────
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -47,6 +53,9 @@ builder.Services.AddScoped<IBillPaymentService, BillPaymentService>();
 builder.Services.AddScoped<IFakeBankService, FakeBankService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IAdminService, AdminService>();
+builder.Services.AddScoped<IMoneyRequestService, MoneyRequestService>();
+
+// ── 1.4 JWT Token Generator ────────────────────────────────────────────────
 builder.Services.AddScoped<JwtTokenGenerator>(provider =>
 {
     var configuration = provider.GetRequiredService<IConfiguration>();
@@ -54,36 +63,66 @@ builder.Services.AddScoped<JwtTokenGenerator>(provider =>
     var secretKey = configuration["Jwt:SecretKey"]
         ?? throw new InvalidOperationException("Jwt:SecretKey not found");
 
-    var issuer = configuration["Jwt:Issuer"] ?? "DigitalWallet";
-    var audience = configuration["Jwt:Audience"] ?? "DigitalWalletUsers";
+    var issuer = configuration["Jwt:Issuer"] ?? "DigitalWallet.API";
+    var audience = configuration["Jwt:Audience"] ?? "DigitalWallet.Clients";
     var expirationHours = int.Parse(configuration["Jwt:ExpirationHours"] ?? "24");
 
     return new JwtTokenGenerator(secretKey, issuer, audience, expirationHours);
 });
 
-// ── 1.4 Helper Services ─────────────────────────────────────────────────────
-// Note: JwtTokenGenerator should be properly implemented in Application.Helpers
-// For now, we skip registration as it's used directly in services
+// ── 1.5 JWT Authentication Configuration 🔥 CRITICAL - WAS MISSING! ─────────
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    var secretKey = builder.Configuration["Jwt:SecretKey"]
+        ?? throw new InvalidOperationException("Jwt:SecretKey is required");
 
-// ── 1.5 AutoMapper ──────────────────────────────────────────────────────────
+    options.SaveToken = true;
+    options.RequireHttpsMetadata = false; // Set to true in production
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = builder.Configuration["Jwt:Issuer"] ?? "DigitalWallet.API",
+        ValidAudience = builder.Configuration["Jwt:Audience"] ?? "DigitalWallet.Clients",
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
+        ClockSkew = TimeSpan.Zero // Remove delay of token expiration
+    };
+});
+
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("AdminOnly", policy =>
+    {
+        policy.RequireAuthenticatedUser();
+        policy.RequireClaim(System.Security.Claims.ClaimTypes.Role, "SuperAdmin", "Support", "Auditor");
+    });
+});
+
+// ── 1.6 AutoMapper ──────────────────────────────────────────────────────────
 builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
 
-// ── 1.6 Controllers with Custom Filters ─────────────────────────────────────
+// ── 1.7 Controllers with Filters ────────────────────────────────────────────
 builder.Services.AddControllers(options =>
 {
-    // Add custom validation filter for uniform error responses
     options.Filters.Add<ValidationFilter>();
 })
 .AddJsonOptions(options =>
 {
-    // Configure JSON serialization to handle enums as strings
     options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
     options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
 });
 
-// ── 1.7 CORS Configuration ──────────────────────────────────────────────────
+// ── 1.8 CORS Configuration ──────────────────────────────────────────────────
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-    ?? new[] { "http://localhost:3000" };
+    ?? new[] { "http://localhost:3000", "http://localhost:4200" };
 
 builder.Services.AddCors(options =>
 {
@@ -97,7 +136,7 @@ builder.Services.AddCors(options =>
     });
 });
 
-// ── 1.8 Swagger/OpenAPI Documentation ───────────────────────────────────────
+// ── 1.9 Swagger Configuration ───────────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -148,10 +187,9 @@ builder.Services.AddSwaggerGen(options =>
     }
 });
 
-// ── 1.9 HTTP Client for External Services (if needed) ──────────────────────
+// ── 1.10 Additional Services ────────────────────────────────────────────────
 builder.Services.AddHttpClient();
 
-// ── 1.10 Health Checks ──────────────────────────────────────────────────────
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<ApplicationDbContext>("Database");
 
@@ -161,42 +199,45 @@ builder.Services.AddHealthChecks()
 
 var app = builder.Build();
 
-// ── 2.1 Development Environment Configuration ───────────────────────────────
+// ── 2.1 Exception Handling (Outermost) ─────────────────────────────────────
+app.UseMiddleware<ExceptionHandlingMiddleware>();
+
+// ── 2.2 Request Logging ─────────────────────────────────────────────────────
+app.UseMiddleware<RequestLoggingMiddleware>();
+
+// ── 2.3 HTTPS Redirection ───────────────────────────────────────────────────
+app.UseHttpsRedirection();
+
+// ── 2.4 Routing ─────────────────────────────────────────────────────────────
+app.UseRouting();
+
+// ── 2.5 CORS (Must be AFTER UseRouting, BEFORE Auth) ───────────────────────
+app.UseCors("AllowSpecificOrigins");
+
+// ── 2.6 Swagger (Development Only) ──────────────────────────────────────────
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI(options =>
     {
         options.SwaggerEndpoint("/swagger/v1/swagger.json", "Digital Wallet API V1");
-        options.RoutePrefix = string.Empty; // Swagger at root
+        options.RoutePrefix = "swagger";
     });
 }
 
-// ── 2.2 Global Error Handler ────────────────────────────────────────────────
-app.UseMiddleware<ExceptionHandlingMiddleware>();
-
-// ── 2.3 Request Logging ─────────────────────────────────────────────────────
-app.UseMiddleware<RequestLoggingMiddleware>();
-
-// ── 2.4 HTTPS Redirection ───────────────────────────────────────────────────
-app.UseHttpsRedirection();
-
-// ── 2.5 CORS ────────────────────────────────────────────────────────────────
-app.UseCors("AllowSpecificOrigins");
-
-// ── 2.6 JWT Authentication Middleware ───────────────────────────────────────
-app.UseMiddleware<JwtAuthenticationMiddleware>();
-
-// ── 2.7 Authorization ───────────────────────────────────────────────────────
+// ── 2.7 Authentication & Authorization 🔥 CRITICAL ORDER! ───────────────────
+// IMPORTANT: Do NOT use custom JwtAuthenticationMiddleware here
+// The built-in UseAuthentication() handles JWT properly
+app.UseAuthentication();   // Must come BEFORE UseAuthorization
 app.UseAuthorization();
 
-// ── 2.8 Controllers ─────────────────────────────────────────────────────────
+// ── 2.8 Map Controllers ─────────────────────────────────────────────────────
 app.MapControllers();
 
-// ── 2.9 Health Check Endpoint ───────────────────────────────────────────────
+// ── 2.9 Health Checks ───────────────────────────────────────────────────────
 app.MapHealthChecks("/health");
 
-// ── 2.10 Welcome Endpoint ───────────────────────────────────────────────────
+// ── 2.10 Root Endpoint ──────────────────────────────────────────────────────
 app.MapGet("/", () => Results.Ok(new
 {
     Service = "Digital Wallet API",
@@ -208,28 +249,7 @@ app.MapGet("/", () => Results.Ok(new
 }));
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TEMPORARILY DISABLED - Database is on Ayman device
-// ═══════════════════════════════════════════════════════════════════════════
-/*
-if (app.Environment.IsDevelopment())
-{
-    using var scope = app.Services.CreateScope();
-    var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    
-    try
-    {
-        dbContext.Database.Migrate();
-        app.Logger.LogInformation("Database migrations applied successfully");
-    }
-    catch (Exception ex)
-    {
-        app.Logger.LogError(ex, "An error occurred while migrating the database");
-    }
-}
-*/
-
-// ═══════════════════════════════════════════════════════════════════════════
-// SECTION 4: Application Startup
+// SECTION 3: Application Startup
 // ═══════════════════════════════════════════════════════════════════════════
 
 app.Logger.LogInformation("Digital Wallet API starting...");
