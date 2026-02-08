@@ -69,12 +69,11 @@ namespace DigitalWallet.API.Controllers
         /// <response code="400">Invalid or expired OTP</response>
         [HttpPost("verify-otp")]
         [AllowAnonymous]
-        [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
-        [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status400BadRequest)]
-        public async Task<ActionResult<ApiResponse<bool>>> VerifyOtp([FromBody] VerifyOtpRequestDto request)
+        [ProducesResponseType(typeof(ApiResponse<LoginResponseDto>), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(ApiResponse<LoginResponseDto>), StatusCodes.Status400BadRequest)]
+        public async Task<ActionResult<ApiResponse<LoginResponseDto>>> VerifyOtp([FromBody] VerifyOtpRequestDto request)
         {
             _logger.LogInformation("OTP verification for UserId: {UserId}", request.UserId);
-
             var result = await _authService.VerifyOtpAsync(request);
             return HandleResult(result);
         }

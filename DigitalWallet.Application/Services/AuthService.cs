@@ -14,6 +14,7 @@ namespace DigitalWallet.Application.Services
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
         private readonly JwtTokenGenerator _jwtTokenGenerator;
+        //private readonly OtpGenerator _otpGenerator;
 
         public AuthService(
             IUnitOfWork unitOfWork,
@@ -146,34 +147,57 @@ namespace DigitalWallet.Application.Services
             }
         }
 
-        public async Task<ServiceResult<bool>> VerifyOtpAsync(VerifyOtpRequestDto request)
+        public async Task<ServiceResult<LoginResponseDto>> VerifyOtpAsync(VerifyOtpRequestDto request)
         {
             try
             {
+                // 1. Validate OTP
                 var otp = await _unitOfWork.OtpCodes.GetValidOtpAsync(
                     request.UserId,
                     request.Code,
                     OtpType.Login);
 
                 if (otp == null)
-                    return ServiceResult<bool>.Failure("Invalid or expired OTP");
+                    return ServiceResult<LoginResponseDto>.Failure("Invalid or expired OTP");
 
+                // 2. Get user
+                var user = await _unitOfWork.Users.GetByIdAsync(request.UserId);
+                if (user == null)
+                    return ServiceResult<LoginResponseDto>.Failure("User not found");
+
+                // 3. Mark OTP as used
                 await _unitOfWork.OtpCodes.MarkAsUsedAsync(otp.Id);
 
-                var user = await _unitOfWork.Users.GetByIdAsync(request.UserId);
-                if (user != null)
-                {
-                    user.LastLoginAt = DateTime.UtcNow;
-                    await _unitOfWork.Users.UpdateAsync(user);
-                }
-
+                // 4. Update last login
+                user.LastLoginAt = DateTime.UtcNow;
+                await _unitOfWork.Users.UpdateAsync(user);
                 await _unitOfWork.SaveChangesAsync();
 
-                return ServiceResult<bool>.Success(true, "OTP verified successfully");
+                // 5. Generate JWT Token - Pass the USER OBJECT directly
+                var token = _jwtTokenGenerator.GenerateToken(user);
+
+                // 6. Generate refresh token - Call static method directly
+                var refreshToken = OtpGenerator.GenerateRefreshToken();
+
+                var expiresAt = DateTime.UtcNow.AddHours(24);
+
+                // 7. Create response
+                var response = new LoginResponseDto
+                {
+                    Token = token,
+                    RefreshToken = refreshToken,
+                    ExpiresAt = expiresAt,
+                    UserId = user.Id,
+                    FullName = user.FullName,
+                    Email = user.Email,
+                    RequiresOtp = false
+                };
+
+                return ServiceResult<LoginResponseDto>.Success(response, "OTP verified successfully");
             }
             catch (Exception ex)
             {
-                return ServiceResult<bool>.Failure($"OTP verification failed: {ex.Message}");
+                return ServiceResult<LoginResponseDto>.Failure($"OTP verification failed: {ex.Message}");
             }
         }
 

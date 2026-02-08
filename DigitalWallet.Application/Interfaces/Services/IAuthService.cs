@@ -7,7 +7,7 @@ namespace DigitalWallet.Application.Interfaces.Services
     {
         Task<ServiceResult<LoginResponseDto>> RegisterAsync(RegisterRequestDto request);
         Task<ServiceResult<LoginResponseDto>> LoginAsync(LoginRequestDto request);
-        Task<ServiceResult<bool>> VerifyOtpAsync(VerifyOtpRequestDto request);
+        Task<ServiceResult<LoginResponseDto>> VerifyOtpAsync(VerifyOtpRequestDto request);
         Task<ServiceResult<bool>> SendOtpAsync(Guid userId, string otpType);
     }
 }

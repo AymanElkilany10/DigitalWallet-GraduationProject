@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using DigitalWallet.Domain.Entities;
+using DigitalWallet.Domain.Enums;
 
 namespace DigitalWallet.Infrastructure.Data.Configurations
 {
@@ -31,9 +32,7 @@ namespace DigitalWallet.Infrastructure.Data.Configurations
 
             builder.Property(b => b.Status)
                 .IsRequired()
-                .HasConversion<string>()
-                .HasMaxLength(20)
-                .HasDefaultValue("Pending");
+                .HasDefaultValue(TransactionStatus.Pending);
 
             builder.Property(b => b.ReceiptPath)
                 .HasMaxLength(255);
