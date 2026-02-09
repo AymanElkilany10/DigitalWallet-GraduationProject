@@ -15,6 +15,8 @@
         INotificationRepository Notifications { get; }
         IFraudLogRepository FraudLogs { get; }
         IAdminRepository Admins { get; }  // ✅ ADDED
+        IExchangeRateRepository ExchangeRates { get; }
+        ICurrencyExchangeRepository CurrencyExchanges { get; }
 
         Task<int> SaveChangesAsync();
         Task BeginTransactionAsync();

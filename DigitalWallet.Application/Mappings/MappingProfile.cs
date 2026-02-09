@@ -2,6 +2,7 @@
 using DigitalWallet.Application.DTOs.Admin;
 using DigitalWallet.Application.DTOs.Auth;
 using DigitalWallet.Application.DTOs.BillPayment;
+using DigitalWallet.Application.DTOs.Exchange;
 using DigitalWallet.Application.DTOs.FakeBank;
 using DigitalWallet.Application.DTOs.MoneyRequest;
 using DigitalWallet.Application.DTOs.Notification;
@@ -78,6 +79,13 @@ namespace DigitalWallet.Application.Mappings
             CreateMap<FraudLog, FraudLogDto>()
                 .ForMember(dest => dest.UserName, opt => opt.MapFrom(src => src.User.FullName))
                 .ForMember(dest => dest.Type, opt => opt.MapFrom(src => src.Type.ToString()));
+
+            // Exchange mappings
+            CreateMap<CurrencyExchange, ExchangeResponseDto>()
+                .ForMember(dest => dest.ExchangeId, opt => opt.MapFrom(src => src.Id))
+                .ForMember(dest => dest.ExchangedAt, opt => opt.MapFrom(src => src.CreatedAt));
+
+            CreateMap<ExchangeRate, ExchangeRateDto>();
         }
     }
 }

@@ -1,6 +1,7 @@
 ﻿using AutoMapper;
 using DigitalWallet.Application.Common;
 using DigitalWallet.Application.DTOs.BillPayment;
+using DigitalWallet.Application.Helpers;
 using DigitalWallet.Application.Interfaces.Repositories;
 using DigitalWallet.Application.Interfaces.Services;
 using DigitalWallet.Domain.Entities;
@@ -13,7 +14,7 @@ namespace DigitalWallet.Application.Services
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
 
-        public BillPaymentService(IUnitOfWork unitOfWork, IMapper mapper)
+        public BillPaymentService(IUnitOfWork unitOfWork, IMapper mapper, INotificationService notificationService)
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
@@ -21,6 +22,8 @@ namespace DigitalWallet.Application.Services
 
         public async Task<ServiceResult<IEnumerable<BillerDto>>> GetAllBillersAsync()
         {
+            
+
             try
             {
                 var billers = await _unitOfWork.Billers.GetActiveBillersAsync();

@@ -27,6 +27,9 @@ namespace DigitalWallet.Infrastructure.Data
             Notifications = new NotificationRepository(_context);
             FraudLogs = new FraudLogRepository(_context);
             Admins = new AdminRepository(_context);  // ✅ ADDED
+            ExchangeRates = new ExchangeRateRepository(_context);
+            CurrencyExchanges = new CurrencyExchangeRepository(_context);
+
         }
 
         public IUserRepository Users { get; private set; }
@@ -42,6 +45,8 @@ namespace DigitalWallet.Infrastructure.Data
         public INotificationRepository Notifications { get; private set; }
         public IFraudLogRepository FraudLogs { get; private set; }
         public IAdminRepository Admins { get; private set; }  // ✅ ADDED
+        public IExchangeRateRepository ExchangeRates { get; }
+        public ICurrencyExchangeRepository CurrencyExchanges { get; }
 
         public async Task<int> SaveChangesAsync()
         {
