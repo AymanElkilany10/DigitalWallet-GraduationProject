@@ -27,6 +27,16 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
         sqlOptions => sqlOptions.MigrationsAssembly("DigitalWallet.Infrastructure")
     ));
 
+
+// ── Redis Caching Configuration ────────────────────────────────────────
+/*builder.Services.AddStackExchangeRedisCache(options =>
+{
+    options.Configuration = builder.Configuration.GetConnectionString("Redis");
+    options.InstanceName = "DigitalWallet_";
+});*/
+
+
+
 // ── 1.2 Repository Registration ────────────────────────────────────────────
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
@@ -54,6 +64,13 @@ builder.Services.AddScoped<IFakeBankService, FakeBankService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IAdminService, AdminService>();
 builder.Services.AddScoped<IMoneyRequestService, MoneyRequestService>();
+//builder.Services.AddScoped<ICachingService, RedisCachingService>();
+
+// External services
+builder.Services.AddHttpClient<IExternalExchangeRateService, ExternalExchangeRateService>();
+
+// Currency exchange service
+builder.Services.AddScoped<ICurrencyExchangeService, CurrencyExchangeService>();
 
 // ── 1.4 JWT Token Generator ────────────────────────────────────────────────
 builder.Services.AddScoped<JwtTokenGenerator>(provider =>
